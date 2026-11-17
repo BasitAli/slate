@@ -4,7 +4,7 @@
 
 Native Noctalia v5 plugin for [slate](https://github.com/BasitAli/slate).
 
-- **Bar widget** `basitali/noctalia-slate:widget` — open-block count; offer dot when clipboard matches
+- **Bar widget** `basitali/noctalia-slate:widget` — **My Slate** + open-block count
 - **Panel** `basitali/noctalia-slate:panel` — block cards (next/notes/chips), Add/Open/Done
 - **Service** — refreshes via `slate ls --json`
 

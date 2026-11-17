@@ -12,9 +12,9 @@ plugin_api = 9
 author = "basitali"
 license = "MIT"
 icon = "clipboard-list"
-description = "Block cards for open work; clipboard offer for Jira/PR/Slack; /slate launcher."
+description = "Block cards for open work; /slate launcher for todos and Jira/PR/Slack links."
 dependencies = []
-tags = ["slate", "jira", "bar", "panel", "clipboard", "launcher"]
+tags = ["slate", "jira", "bar", "panel", "launcher"]
 
 [[setting]]
 key = "blocks_refresh_ms"
