@@ -53,3 +53,16 @@ arg = "kitty"
 action = "type"
 arg = "slate review "
 # paste PR URL + enter
+
+[[command]]
+phrases = ["slate note", "new slate note", "slate todo", "new slate todo", "slate block start"]
+[[command.step]]
+action = "launch"
+arg = "terminal"
+[[command.step]]
+action = "wait_window"
+arg = "kitty"
+[[command.step]]
+action = "type"
+arg = "slate block start "
+# dictate title; optional: --next "…" then enter
