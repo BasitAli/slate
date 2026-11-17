@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-11-17
+
+### Changed
+
+- Clipboard / `slate open`: **Jira, PR/MR, and Slack** all open a Claude session (primary);
+  **Park only** via `slate park` or the notify action
+- Slack permalinks recognized (`*.slack.com/archives/…`)
+
 ## 0.2.0 — 2026-11-17
 
 ### Added

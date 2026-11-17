@@ -25,4 +25,5 @@ Add bar widget type `basitali/noctalia-slate:widget` (Settings → Bar, or `[wid
 
 IPC: `noctalia msg panel-toggle basitali/noctalia-slate:panel`
 
-Copy a Jira browse URL / `KEY` / GitHub-GitLab PR URL → notification **Add to slate** (no auto-add). Setting `clipboard_offer = false` disables.
+Copy a Jira / PR/MR / Slack permalink → **Open session** (kitty+claude) or **Park only**.
+`clipboard_offer = false` disables the watch.

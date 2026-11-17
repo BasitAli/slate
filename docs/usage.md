@@ -33,7 +33,11 @@ slate done-block <id|jira:KEY>
 ## Implement
 
 ```fish
-slate open jira:PROJ-456           # kitty + claude seed (root from profile)
+slate open PROJ-456                                      # kitty + claude
+slate open https://…/browse/PROJ-456
+slate open https://github.com/…/pull/1                   # review session
+slate open 'https://….slack.com/archives/…/p…'         # slack session
+slate park <same targets>                                # block only, no session
 # or in an existing Claude session — skill runs:
 slate start "flaky auth · PROJ-456"
 slate add jira PROJ-456
