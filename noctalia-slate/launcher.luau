@@ -1,12 +1,51 @@
 --!nonstrict
 -- Launcher provider: type `/slate` (prefix from plugin.toml).
---   /slate           → New todo, Open panel, open blocks
---   /slate Buy milk  → create titled block (and fuzzy-filter list)
+--   /slate              → New todo, Open panel, open blocks
+--   /slate Buy milk     → create titled block (and fuzzy-filter list)
+--   /slate <jira|pr|slack url or KEY> → Open session / Park only
 
 local PANEL = "basitali/noctalia-slate:panel"
 
 local function shQuote(s: string): string
   return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function refresh()
+  local seq = tonumber(noctalia.formatTime("%s")) or 0
+  noctalia.state.set("request", { seq = seq, action = "refresh" })
+end
+
+-- Same shapes as service clipboard match: kind, token, label — or nil.
+local function matchLink(text: string)
+  if type(text) ~= "string" then
+    return nil
+  end
+  text = noctalia.string.trim(text)
+  if text == "" or #text > 2000 or text:find("\n") then
+    return nil
+  end
+
+  local browse = text:match("/browse/([A-Za-z][A-Za-z0-9]+%-%d+)")
+  if browse then
+    return "jira", browse:upper(), browse:upper()
+  end
+
+  local key = text:match("^([A-Za-z][A-Za-z0-9]+%-%d+)$")
+  if key then
+    return "jira", key:upper(), key:upper()
+  end
+
+  if text:match("^https?://") then
+    if text:find("slack%.com/") and (text:find("/archives/") or text:find("/client/")) then
+      local short = (#text > 80) and (text:sub(1, 77) .. "…") or text
+      return "slack", text, short
+    end
+    if text:find("/pull/%d+") or text:find("/merge_requests/%d+") or text:find("/-/merge_requests/%d+") then
+      local short = (#text > 80) and (text:sub(1, 77) .. "…") or text
+      return "review", text, short
+    end
+  end
+  return nil
 end
 
 local function blocks(): { any }
@@ -62,6 +101,33 @@ function onQuery(query)
   local text = noctalia.string.trim(query)
   local rows = {}
 
+  local kind, token, label = matchLink(text)
+  if kind then
+    table.insert(rows, {
+      id = "link:open:" .. token,
+      title = "Open session",
+      subtitle = label,
+      glyph = "player-play",
+      score = 1000,
+    })
+    table.insert(rows, {
+      id = "link:park:" .. token,
+      title = "Park only",
+      subtitle = label,
+      glyph = "bookmark",
+      score = 999,
+    })
+    table.insert(rows, {
+      id = "action:panel",
+      title = "Open My Slate",
+      subtitle = "Panel of open blocks",
+      glyph = "layout-list",
+      score = 900,
+    })
+    launcher.setResults(query, rows)
+    return
+  end
+
   if text == "" then
     table.insert(rows, {
       id = "action:new",
@@ -102,11 +168,36 @@ function onQuery(query)
 end
 
 function onActivate(id)
+  local linkOpen = id:match("^link:open:(.+)$")
+  if linkOpen then
+    noctalia.runAsync("slate open " .. shQuote(linkOpen), function(r)
+      if r.exitCode == 0 then
+        refresh()
+      else
+        noctalia.notifyError("My Slate", noctalia.string.trim(r.stderr or "open failed"))
+      end
+    end, 15000)
+    return
+  end
+
+  local linkPark = id:match("^link:park:(.+)$")
+  if linkPark then
+    noctalia.runAsync("slate park " .. shQuote(linkPark), function(r)
+      if r.exitCode == 0 then
+        noctalia.notify("My Slate", "Parked")
+        refresh()
+      else
+        noctalia.notifyError("My Slate", noctalia.string.trim(r.stderr or "park failed"))
+      end
+    end, 8000)
+    return
+  end
+
   if id == "action:new" then
     noctalia.runAsync("slate block start", function(r)
       if r.exitCode == 0 then
         noctalia.notify("My Slate", "Untitled card " .. noctalia.string.trim(r.stdout or ""))
-        noctalia.runAsync("noctalia msg plugin basitali/noctalia-slate:service all refresh", function() end)
+        refresh()
       else
         noctalia.notifyError("My Slate", noctalia.string.trim(r.stderr or "failed"))
       end
@@ -119,7 +210,7 @@ function onActivate(id)
     noctalia.runAsync("slate block start " .. shQuote(titled), function(r)
       if r.exitCode == 0 then
         noctalia.notify("My Slate", "Created " .. titled)
-        noctalia.runAsync("noctalia msg plugin basitali/noctalia-slate:service all refresh", function() end)
+        refresh()
       else
         noctalia.notifyError("My Slate", noctalia.string.trim(r.stderr or "failed"))
       end

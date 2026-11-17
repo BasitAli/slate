@@ -4,7 +4,8 @@
 
 ### Added
 
-- Launcher provider **`/slate`**: new todo, open panel, jump to open blocks
+- Launcher provider **`/slate`**: new todo, open panel, jump to open blocks;
+  paste Jira/PR/Slack (or KEY) → Open session / Park only
 
 ## 0.2.2 — 2026-11-18
 
