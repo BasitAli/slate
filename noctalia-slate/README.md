@@ -6,7 +6,7 @@ Native Noctalia v5 plugin for [slate](https://github.com/BasitAli/slate).
 
 - **Bar widget** `basitali/noctalia-slate:widget` — open-block count; offer dot when clipboard matches
 - **Panel** `basitali/noctalia-slate:panel` — block cards (next/notes/chips), Add/Open/Done
-- **Service** — polls clipboard → `notify-send` **Add to slate** / **Open session**; refreshes via `slate ls --json`
+- **Service** — polls clipboard → `notify-send` **Open session** / **Park only**; refreshes via `slate ls --json`
 
 Requires `slate` on `PATH`.
 
@@ -24,6 +24,9 @@ noctalia msg plugins enable basitali/noctalia-slate
 Add bar widget type `basitali/noctalia-slate:widget` (Settings → Bar, or `[widget.slate]` in settings.toml).
 
 IPC: `noctalia msg panel-toggle basitali/noctalia-slate:panel`
+
+Launcher: type **`/slate`** — New todo, Open My Slate, pick an open block (Enter opens session).
+`/slate Buy milk` offers creating that titled card.
 
 Copy a Jira / PR/MR / Slack permalink → **Open session** (kitty+claude) or **Park only**.
 `clipboard_offer = false` disables the watch.

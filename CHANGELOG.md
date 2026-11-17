@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 — 2026-11-18
+
+### Added
+
+- Launcher provider **`/slate`**: new todo, open panel, jump to open blocks
+
 ## 0.2.2 — 2026-11-18
 
 ### Changed

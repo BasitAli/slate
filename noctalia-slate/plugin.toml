@@ -6,14 +6,14 @@
 
 id = "basitali/noctalia-slate"
 name = "Slate"
-version = "0.2.2"
+version = "0.2.3"
 plugin_api = 9
 author = "basitali"
 license = "MIT"
 icon = "clipboard-list"
-description = "Block cards for open work; clipboard offer for Jira/PR/Slack."
+description = "Block cards for open work; clipboard offer for Jira/PR/Slack; /slate launcher."
 dependencies = []
-tags = ["slate", "jira", "bar", "panel", "clipboard"]
+tags = ["slate", "jira", "bar", "panel", "clipboard", "launcher"]
 
 [[setting]]
 key = "clipboard_offer"
@@ -65,3 +65,11 @@ open_near_click = true
 [[service]]
 id = "service"
 entry = "service.luau"
+
+# Launcher: type `/slate` (provider_prefix + this word).
+[[launcher_provider]]
+id = "launcher"
+entry = "launcher.luau"
+prefix = "slate"
+glyph = "clipboard-list"
+include_in_global_search = false
