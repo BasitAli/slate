@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — 2026-11-18
+
+### Changed
+
+- noctalia-slate panel cards match sticky-notes style (filled `surface_container`,
+  radius 8, separator, outline sm actions)
+
 ## 0.2.1 — 2026-11-17
 
 ### Changed

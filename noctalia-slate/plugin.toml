@@ -6,12 +6,12 @@
 
 id = "basitali/noctalia-slate"
 name = "Slate"
-version = "0.2.0"
-plugin_api = 3
+version = "0.2.2"
+plugin_api = 9
 author = "basitali"
 license = "MIT"
 icon = "clipboard-list"
-description = "Block cards for open work; clipboard offer to capture Jira/PR links."
+description = "Block cards for open work; clipboard offer for Jira/PR/Slack."
 dependencies = []
 tags = ["slate", "jira", "bar", "panel", "clipboard"]
 
@@ -56,8 +56,8 @@ entry = "widget.luau"
 [[panel]]
 id = "panel"
 entry = "panel.luau"
-width = 380
-height = 480
+width = 400
+height = 500
 placement = "floating"
 position = "auto"
 open_near_click = true

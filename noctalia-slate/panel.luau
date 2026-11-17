@@ -1,8 +1,8 @@
 --!nonstrict
--- Block cards + pending clipboard offer. Actions via state.request → service.
+-- Block cards styled like sticky-notes: filled rounded card, body, separator,
+-- footer with meta + outline sm actions. Actions via state.request → service.
 
 local seq = tonumber(noctalia.formatTime("%s")) or 0
-local rowData = {}
 
 local function request(action: string, extra: table?)
   seq = seq + 1
@@ -27,146 +27,216 @@ end
 
 local function header()
   return ui.row({ align = "center", justify = "space_between", gap = 8 }, {
-    ui.label({ text = noctalia.tr("title"), fontSize = 16, fontWeight = "bold", color = "on_surface", flexGrow = 1 }),
-    ui.button({ glyph = "refresh", variant = "ghost", onClick = "onRefresh" }),
-    ui.button({ glyph = "close", variant = "ghost", onClick = "onClose" }),
+    ui.label({
+      text = noctalia.tr("title"),
+      fontSize = 16,
+      fontWeight = "bold",
+      color = "on_surface",
+      flexGrow = 1,
+    }),
+    ui.button({
+      glyph = "refresh",
+      variant = "outline",
+      controlSize = "sm",
+      tooltip = noctalia.tr("refresh"),
+      onClick = function()
+        request("refresh")
+      end,
+    }),
+    ui.button({
+      glyph = "close",
+      variant = "outline",
+      controlSize = "sm",
+      onClick = function()
+        panel.close()
+      end,
+    }),
   })
 end
 
 local function offerBanner(offer)
-  return ui.column({ gap = 8, paddingV = 6, fill = "primary/0.15", radius = 8, paddingH = 10 }, {
-    ui.label({ text = noctalia.tr("offer_title"), fontWeight = "bold", color = "primary" }),
-    ui.label({ text = tostring(offer.label or offer.token), color = "on_surface", fontSize = 12 }),
-    ui.row({ gap = 6 }, {
-      ui.button({ text = noctalia.tr("open_session"), onClick = "onOfferOpen" }),
-      ui.button({ text = noctalia.tr("park"), variant = "ghost", onClick = "onOfferPark" }),
-      ui.button({ text = noctalia.tr("dismiss"), variant = "ghost", onClick = "onOfferDismiss" }),
+  return ui.column({
+    key = "offer",
+    fill = "primary_container",
+    radius = 8,
+    padding = 10,
+    gap = 6,
+  }, {
+    ui.label({
+      text = noctalia.tr("offer_title"),
+      fontWeight = "bold",
+      color = "on_primary_container",
+      fontSize = 13,
+    }),
+    ui.label({
+      text = tostring(offer.label or offer.token),
+      color = "on_primary_container",
+      fontSize = 12,
+      maxLines = 2,
+    }),
+    ui.separator({}),
+    ui.row({ align = "center", justify = "end", gap = 4 }, {
+      ui.button({
+        glyph = "player-play",
+        text = noctalia.tr("open_session"),
+        variant = "outline",
+        controlSize = "sm",
+        onClick = function()
+          request("open", { token = offer.token })
+        end,
+      }),
+      ui.button({
+        glyph = "bookmark",
+        text = noctalia.tr("park"),
+        variant = "outline",
+        controlSize = "sm",
+        onClick = function()
+          request("park", { token = offer.token })
+        end,
+      }),
+      ui.button({
+        glyph = "close",
+        variant = "outline",
+        controlSize = "sm",
+        onClick = function()
+          request("dismiss_offer")
+        end,
+      }),
     }),
   })
 end
-local function card(b, index)
-  rowData[index] = b
+
+-- Sticky-notes-style card: fill + radius 8 + padding 10 + body / sep / footer.
+local function blockCard(b)
   local chips = ""
-  if type(b.chips) == "table" then
+  if type(b.chips) == "table" and #b.chips > 0 then
     chips = table.concat(b.chips, " · ")
   end
-  local nxt = trunc(b.next or "", 90)
-  local note = trunc(b.note or "", 70)
-  local sub = chips
-  if nxt ~= "" then
-    sub = (sub ~= "" and (sub .. "\n") or "") .. "next: " .. nxt
-  end
-  if note ~= "" then
-    sub = (sub ~= "" and (sub .. "\n") or "") .. note
+  local nxt = trunc(b.next or "", 120)
+  local note = trunc(b.note or "", 100)
+  local meta = tostring(b.profile or "")
+  if chips ~= "" then
+    meta = meta .. " · " .. chips
   end
 
-  return ui.column({ gap = 4, paddingV = 6, paddingH = 4 }, {
-    ui.row({ align = "center", justify = "space_between", gap = 6 }, {
-      ui.column({ gap = 2, flexGrow = 1 }, {
-        ui.label({ text = tostring(b.title or b.id), fontWeight = "bold", color = "on_surface" }),
-        ui.label({
-          text = tostring(b.profile or "") .. " · " .. tostring(b.status or ""),
-          fontSize = 11,
-          color = "on_surface_variant",
-        }),
-        ui.label({ text = sub, fontSize = 11, color = "on_surface_variant" }),
-      }),
+  local bodyKids = {
+    ui.label({
+      text = tostring(b.title or b.id),
+      fontWeight = "bold",
+      fontSize = 14,
+      color = "on_surface",
+      maxLines = 2,
     }),
-    ui.row({ gap = 6 }, {
-      ui.button({ text = noctalia.tr("open"), variant = "ghost", onClick = "onOpen" .. index }),
-      ui.button({ text = noctalia.tr("done"), variant = "ghost", onClick = "onDone" .. index }),
+  }
+  if nxt ~= "" then
+    table.insert(bodyKids, ui.label({
+      text = "next: " .. nxt,
+      fontSize = 12,
+      color = "on_surface",
+      maxLines = 3,
+    }))
+  end
+  if note ~= "" then
+    table.insert(bodyKids, ui.label({
+      text = note,
+      fontSize = 12,
+      color = "on_surface_variant",
+      maxLines = 3,
+    }))
+  end
+
+  local openToken = b.open
+  local actions = {
+    ui.button({
+      glyph = "player-play",
+      variant = "outline",
+      controlSize = "sm",
+      tooltip = noctalia.tr("open"),
+      enabled = type(openToken) == "string" and openToken ~= "",
+      onClick = function()
+        if type(openToken) == "string" and openToken ~= "" then
+          request("open", { token = openToken })
+        end
+      end,
     }),
+    ui.button({
+      glyph = "check",
+      variant = "outline",
+      controlSize = "sm",
+      tooltip = noctalia.tr("done"),
+      onClick = function()
+        request("done", { token = b.id })
+      end,
+    }),
+  }
+
+  return ui.column({
+    key = "card-" .. tostring(b.id),
+    fill = "surface_container",
+    radius = 8,
+    padding = 10,
+    gap = 6,
+    align = "stretch",
+  }, {
+    ui.column({ gap = 4, align = "stretch" }, bodyKids),
     ui.separator({}),
+    ui.row({ align = "center", justify = "space_between" }, {
+      ui.label({ text = meta, fontSize = 10, color = "on_surface_variant", flexGrow = 1 }),
+      ui.row({ gap = 4, align = "center" }, actions),
+    }),
+  })
+end
+
+local function emptyState()
+  return ui.column({
+    flexGrow = 1,
+    align = "center",
+    justify = "center",
+    gap = 14,
+  }, {
+    ui.glyph({ name = "clipboard-list", size = 48, color = "on_surface_variant" }),
+    ui.label({
+      text = noctalia.tr("empty"),
+      fontSize = 13,
+      color = "on_surface_variant",
+      textAlign = "center",
+    }),
   })
 end
 
 local function render()
   local blocksState = noctalia.state.get("blocks")
-  local items = (type(blocksState) == "table" and type(blocksState.items) == "table") and blocksState.items or {}
+  local items = (type(blocksState) == "table" and type(blocksState.items) == "table")
+      and blocksState.items
+    or {}
   local offer = noctalia.state.get("offer")
-  rowData = {}
 
-  local body = {}
+  local listKids = {}
   if type(offer) == "table" and offer.token then
-    table.insert(body, offerBanner(offer))
+    table.insert(listKids, offerBanner(offer))
   end
-  if #items == 0 then
-    table.insert(body, ui.label({ text = noctalia.tr("empty"), color = "on_surface_variant" }))
+  if #items == 0 and not (type(offer) == "table" and offer.token) then
+    table.insert(listKids, emptyState())
   else
     for i, b in ipairs(items) do
       if i > 16 then
         break
       end
-      table.insert(body, card(b, i))
+      table.insert(listKids, blockCard(b))
     end
   end
 
-  panel.render(ui.column({ flexGrow = 1, gap = 10 }, {
+  panel.render(ui.column({
+    flexGrow = 1,
+    gap = 8,
+    padding = 8,
+    justify = "start",
+    align = "stretch",
+  }, {
     header(),
-    ui.scroll({ flexGrow = 1, gap = 2 }, body),
+    ui.scroll({ flexGrow = 1, gap = 4, align = "stretch", justify = "start" }, listKids),
   }))
 end
-
-function onClose()
-  panel.close()
-end
-
-function onRefresh()
-  request("refresh")
-end
-
-function onOfferOpen()
-  local offer = noctalia.state.get("offer")
-  if type(offer) == "table" then
-    request("open", { token = offer.token })
-  end
-end
-
-function onOfferPark()
-  local offer = noctalia.state.get("offer")
-  if type(offer) == "table" then
-    request("park", { token = offer.token })
-  end
-end
-
-function onOfferDismiss()
-  request("dismiss_offer")
-end
-
-local function openAt(i)
-  local b = rowData[i]
-  if not b then
-    return
-  end
-  local token = b.open
-  if type(token) ~= "string" or token == "" then
-    noctalia.notify("Slate", "Nothing to open on this block")
-    return
-  end
-  request("open", { token = token })
-end
-
-local function doneAt(i)
-  local b = rowData[i]
-  if not b then
-    return
-  end
-  request("done", { token = b.id })
-end
-
-function onOpen1() openAt(1) end   function onOpen2() openAt(2) end   function onOpen3() openAt(3) end
-function onOpen4() openAt(4) end   function onOpen5() openAt(5) end   function onOpen6() openAt(6) end
-function onOpen7() openAt(7) end   function onOpen8() openAt(8) end   function onOpen9() openAt(9) end
-function onOpen10() openAt(10) end function onOpen11() openAt(11) end function onOpen12() openAt(12) end
-function onOpen13() openAt(13) end function onOpen14() openAt(14) end function onOpen15() openAt(15) end
-function onOpen16() openAt(16) end
-
-function onDone1() doneAt(1) end   function onDone2() doneAt(2) end   function onDone3() doneAt(3) end
-function onDone4() doneAt(4) end   function onDone5() doneAt(5) end   function onDone6() doneAt(6) end
-function onDone7() doneAt(7) end   function onDone8() doneAt(8) end   function onDone9() doneAt(9) end
-function onDone10() doneAt(10) end function onDone11() doneAt(11) end function onDone12() doneAt(12) end
-function onDone13() doneAt(13) end function onDone14() doneAt(14) end function onDone15() doneAt(15) end
-function onDone16() doneAt(16) end
 
 function update()
   render()
