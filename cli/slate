@@ -121,8 +121,8 @@ def get_node(nid: str, profile: str | None = None) -> dict[str, Any] | None:
     return None
 
 
-def resolve_node(token: str, profile: str | None = None) -> dict[str, Any] | None:
-    """id | jira:KEY | kind:ref | url."""
+def _resolve_in(token: str, profile: str) -> dict[str, Any] | None:
+    """id | jira:KEY | url within one profile."""
     nodes = load_nodes(profile)
     if re.fullmatch(r"[0-9a-f]{8}", token):
         for n in nodes:
@@ -137,7 +137,6 @@ def resolve_node(token: str, profile: str | None = None) -> dict[str, Any] | Non
         for n in nodes:
             if (n.get("refs") or {}).get("url") == token:
                 return n
-    # bare jira key
     m = JIRA_KEY_RE.fullmatch(token)
     if m:
         key = m.group(1).upper()
@@ -145,6 +144,25 @@ def resolve_node(token: str, profile: str | None = None) -> dict[str, Any] | Non
             if n.get("kind") == "jira" and (n.get("refs") or {}).get("jira") == key:
                 return n
     return None
+
+
+def resolve_node(token: str, profile: str | None = None) -> dict[str, Any] | None:
+    """id | jira:KEY | url. Searches all profiles unless profile= is set."""
+    if profile:
+        return _resolve_in(token, profile)
+    seen: set[str] = set()
+    for p in (active_profile(), "ithaka", "personal"):
+        if p in seen:
+            continue
+        seen.add(p)
+        n = _resolve_in(token, p)
+        if n:
+            return n
+    return None
+
+
+def node_profile(node: dict[str, Any]) -> str:
+    return node.get("profile") or active_profile()
 
 
 def profile_root(profile: str | None = None) -> str | None:
@@ -516,10 +534,11 @@ def cmd_done_block(args: argparse.Namespace) -> None:
 
 def cmd_show(args: argparse.Namespace) -> None:
     node = resolve_node(args.id) or die(f"unknown {args.id}")
+    prof = node_profile(node)
     print(json.dumps(node, indent=2))
     kids = []
-    for nid in neighbors(node["id"]):
-        n = get_node(nid)
+    for nid in neighbors(node["id"], prof):
+        n = get_node(nid, prof)
         if n:
             kids.append({"id": n["id"], "kind": n["kind"], "title": n.get("title"), "status": n.get("status")})
     if kids:
@@ -529,9 +548,10 @@ def cmd_show(args: argparse.Namespace) -> None:
 
 
 def cmd_ls(args: argparse.Namespace) -> None:
-    profiles = [active_profile()]
-    if args.all_profiles:
-        profiles = ["ithaka", "personal"]
+    # Always both profiles — cwd auto-profile made `ls` look empty outside Ithaka.
+    profiles = ["ithaka", "personal"]
+    if args.profile:
+        profiles = [args.profile]
     for prof in profiles:
         nodes = load_nodes(prof)
         blocks = [n for n in nodes if n.get("kind") == "block"]
@@ -539,19 +559,14 @@ def cmd_ls(args: argparse.Namespace) -> None:
             blocks = [n for n in blocks if n.get("status") == "open"]
         else:
             blocks = blocks[-20:]
-        if args.all_profiles and blocks:
-            print(f"# {prof}")
+        if not blocks:
+            continue
+        print(f"# {prof}")
         for b in blocks:
             nxt = b.get("next") or ""
             chips = []
             for nid in neighbors(b["id"], prof):
-                c = get_node(nid) if prof == active_profile() else None
-                # cross-profile get: load from that profile
-                if args.all_profiles:
-                    for n in load_nodes(prof):
-                        if n["id"] == nid:
-                            c = n
-                            break
+                c = get_node(nid, prof)
                 if c:
                     if c["kind"] == "jira":
                         chips.append((c.get("refs") or {}).get("jira", "jira"))
@@ -736,12 +751,20 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("id")
     sp.set_defaults(func=cmd_show)
 
-    sp = sub.add_parser("ls")
-    sp.add_argument("--all", action="store_true")
-    sp.add_argument("--all-profiles", action="store_true")
+    sp = sub.add_parser("ls", help="open blocks (both profiles; cwd no longer hides ithaka)")
+    sp.add_argument("--all", action="store_true", help="include recent done")
+    sp.add_argument("--profile", choices=["ithaka", "personal"], help="one profile only")
+    sp.add_argument(
+        "--all-profiles",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )  # ponytail: kept as no-op alias; ls already shows both
     sp.set_defaults(func=cmd_ls)
 
-    sp = sub.add_parser("capture", help="jira key/url → block + jira child")
+    sp = sub.add_parser(
+        "capture",
+        help="jira key/url → block + jira child (no session; use open to launch)",
+    )
     sp.add_argument("token")
     sp.add_argument("--title")
     sp.set_defaults(func=cmd_capture)
@@ -752,8 +775,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--title")
     sp.set_defaults(func=cmd_review)
 
-    sp = sub.add_parser("open", help="kitty+claude seeded on jira key")
-    sp.add_argument("jira")
+    sp = sub.add_parser("open", help="kitty+claude seeded on jira key or browse url")
+    sp.add_argument("jira", help="KEY or https://…/browse/KEY")
     sp.add_argument("--root")
     sp.add_argument("--title")
     sp.set_defaults(func=cmd_open)

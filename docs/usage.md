@@ -13,7 +13,7 @@ slate profile auto         # follow cwd again
 Config: `~/.config/slate/<profile>.toml`
 
 ```toml
-root = "/work/Developer/Ithaka"
+root = "/work/Developer/Ithaka/projects"
 ```
 
 Root resolution: `--root` → profile `root` → `$PWD`.
@@ -21,9 +21,10 @@ Root resolution: `--root` → profile `root` → `$PWD`.
 ## Blocks (cards)
 
 ```fish
-slate ls                   # open blocks
+slate ls                   # open blocks (ithaka + personal)
+slate ls --profile ithaka  # one profile
 slate ls --all             # + recent done
-slate show <id>
+slate show <id|KEY>        # block/jira/session + neighbors
 slate next <block> "…"
 slate note <block> "…"
 slate done-block <id|jira:KEY>
@@ -50,7 +51,17 @@ Prefer pasting the URL to Claude so the skill can read the PR and link Jira keys
 
 ## Capture (clipboard / no agent)
 
+Parks a block only — does **not** launch Claude. For a session, use `open` with the same token.
+
 ```fish
 slate capture PROJ-456
 slate capture https://…/browse/PROJ-456
+slate open https://…/browse/PROJ-456   # kitty + claude (reuses block if already captured)
 ```
+
+## Wisp
+
+Merge `examples/wisp-slate-commands.toml` into `~/.config/wisp/commands.toml`, restart `wispd`.
+Phrases: *slate list* / *what's on my slate*, *slate open*, *slate capture*, *slate review*.
+Each opens kitty and types the CLI (Wisp has no shell-exec). After *open* / *capture* / *review*,
+finish the KEY or URL yourself.

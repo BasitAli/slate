@@ -1,15 +1,55 @@
-# Merge into ~/.config/wisp/commands.toml (machine-local; Phase 3).
-# Requires `slate` on PATH.
+# Merge into ~/.config/wisp/commands.toml (machine-local).
+# Wisp has no shell-exec action — run slate by typing into a kitty.
+# Requires `slate` on PATH. Restart wispd after editing.
 
 [[command]]
-phrases = ["slate list", "what's on my slate"]
+phrases = ["slate list", "what's on my slate", "show my slate"]
 [[command.step]]
-action = "exec"
+action = "launch"
+arg = "terminal"
+[[command.step]]
+action = "wait_window"
+arg = "kitty"
+[[command.step]]
+action = "type"
 arg = "slate ls"
+press_enter = true
 
 [[command]]
 phrases = ["slate open"]
-# Prefer: slate open jira:KEY — extend with typed KEY via dictation later
+[[command.step]]
+action = "launch"
+arg = "terminal"
+[[command.step]]
+action = "wait_window"
+arg = "kitty"
 [[command.step]]
 action = "type"
 arg = "slate open jira:"
+# speak/type the KEY and press enter yourself, or continue: "type PROJ-456 press enter"
+
+[[command]]
+phrases = ["slate capture"]
+[[command.step]]
+action = "launch"
+arg = "terminal"
+[[command.step]]
+action = "wait_window"
+arg = "kitty"
+[[command.step]]
+action = "type"
+arg = "slate capture "
+# then dictate KEY / paste Jira URL + enter
+
+[[command]]
+phrases = ["slate review"]
+[[command.step]]
+action = "launch"
+arg = "terminal"
+[[command.step]]
+action = "wait_window"
+arg = "kitty"
+[[command.step]]
+action = "type"
+arg = "slate review "
+# paste PR URL + enter

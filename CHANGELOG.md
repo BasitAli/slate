@@ -9,3 +9,6 @@
   review (URL), capture (jira), open (kitty + claude seed), show/ls
 - Claude **skill** (`skill/slate`) for implement + review journeys
 - **noctalia-slate** stub + `catalog.toml` (Phase 2 UI TBD)
+- **CLI:** `ls`/`show` search both profiles (cwd no longer hides ithaka); `open` accepts browse URLs; capture help clarifies no session
+- **Wisp** sample macros (`examples/wisp-slate-commands.toml`) — launch kitty + type `slate …`
+  (no Wisp `exec` action)
