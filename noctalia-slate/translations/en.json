@@ -1,0 +1,19 @@
+{
+  "title": "Slate",
+  "empty": "No open blocks",
+  "offer_title": "Add to slate?",
+  "add": "Add to slate",
+  "open_session": "Open session",
+  "dismiss": "Dismiss",
+  "done": "Done",
+  "open": "Open",
+  "refresh": "Refresh",
+  "settings.clipboard_offer.label": "Clipboard offer",
+  "settings.clipboard_offer.description": "When you copy a Jira or PR URL, offer Add to slate (notify-send action).",
+  "settings.poll_ms.label": "Clipboard poll (ms)",
+  "settings.poll_ms.description": "How often to read the clipboard for Jira/PR matches.",
+  "settings.blocks_refresh_ms.label": "Blocks refresh (ms)",
+  "settings.blocks_refresh_ms.description": "How often to re-run slate ls --json.",
+  "settings.glyph.label": "Bar glyph",
+  "settings.glyph.description": "Icon on the bar pill."
+}

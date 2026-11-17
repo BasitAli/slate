@@ -1,7 +1,67 @@
+# Slate — Noctalia v5 plugin for BasitAli/slate.
+#
+# service: clipboard watch → notify-send “Add to slate”; refreshes block list
+# widget: bar pill (open-block count)
+# panel: block cards + pending clipboard offer actions
+
 id = "basitali/noctalia-slate"
 name = "Slate"
-description = "Block cards for Jira, agent sessions, and reviews (Phase 2 — stub)"
-version = "0.1.0"
-authors = ["Basit Ali"]
-# Phase 2: widget + panel + clipboard "Add to slate" notification.
-# Until then this stub exists so the source can be registered.
+version = "0.2.0"
+plugin_api = 3
+author = "basitali"
+license = "MIT"
+icon = "clipboard-list"
+description = "Block cards for open work; clipboard offer to capture Jira/PR links."
+dependencies = []
+tags = ["slate", "jira", "bar", "panel", "clipboard"]
+
+[[setting]]
+key = "clipboard_offer"
+type = "bool"
+label_key = "settings.clipboard_offer.label"
+description_key = "settings.clipboard_offer.description"
+default = true
+
+[[setting]]
+key = "poll_ms"
+type = "int"
+label_key = "settings.poll_ms.label"
+description_key = "settings.poll_ms.description"
+default = 1000
+min = 250
+max = 10000
+advanced = true
+
+[[setting]]
+key = "blocks_refresh_ms"
+type = "int"
+label_key = "settings.blocks_refresh_ms.label"
+description_key = "settings.blocks_refresh_ms.description"
+default = 5000
+min = 1000
+max = 60000
+advanced = true
+
+[[widget]]
+id = "widget"
+entry = "widget.luau"
+
+  [[widget.setting]]
+  key = "glyph"
+  type = "glyph"
+  label_key = "settings.glyph.label"
+  description_key = "settings.glyph.description"
+  default = "clipboard-list"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 380
+height = 480
+placement = "floating"
+position = "auto"
+open_near_click = true
+
+[[service]]
+id = "service"
+entry = "service.luau"

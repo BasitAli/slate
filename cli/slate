@@ -547,11 +547,27 @@ def cmd_show(args: argparse.Namespace) -> None:
             print(f"  {k['id']}  {k['kind']:14}  [{k['status']}]  {k['title']}")
 
 
+def block_chips(block_id: str, prof: str) -> list[str]:
+    chips: list[str] = []
+    for nid in neighbors(block_id, prof):
+        c = get_node(nid, prof)
+        if not c:
+            continue
+        if c["kind"] == "jira":
+            chips.append((c.get("refs") or {}).get("jira", "jira"))
+        elif c["kind"] == "code_review":
+            chips.append("pr")
+        elif c["kind"] == "agent_session":
+            chips.append("sess")
+    return chips
+
+
 def cmd_ls(args: argparse.Namespace) -> None:
     # Always both profiles — cwd auto-profile made `ls` look empty outside Ithaka.
     profiles = ["ithaka", "personal"]
     if args.profile:
         profiles = [args.profile]
+    rows: list[dict[str, Any]] = []
     for prof in profiles:
         nodes = load_nodes(prof)
         blocks = [n for n in nodes if n.get("kind") == "block"]
@@ -559,24 +575,34 @@ def cmd_ls(args: argparse.Namespace) -> None:
             blocks = [n for n in blocks if n.get("status") == "open"]
         else:
             blocks = blocks[-20:]
-        if not blocks:
-            continue
-        print(f"# {prof}")
         for b in blocks:
-            nxt = b.get("next") or ""
-            chips = []
-            for nid in neighbors(b["id"], prof):
-                c = get_node(nid, prof)
-                if c:
-                    if c["kind"] == "jira":
-                        chips.append((c.get("refs") or {}).get("jira", "jira"))
-                    elif c["kind"] == "code_review":
-                        chips.append("pr")
-                    elif c["kind"] == "agent_session":
-                        chips.append("sess")
-            chip_s = " ".join(chips)
-            print(f"{b['id']}  [{b.get('status')}]  {b.get('title')}  {chip_s}" + (f"  next={nxt}" if nxt else ""))
-
+            chips = block_chips(b["id"], prof)
+            rows.append(
+                {
+                    "id": b["id"],
+                    "profile": prof,
+                    "title": b.get("title") or "",
+                    "status": b.get("status") or "",
+                    "next": b.get("next") or "",
+                    "chips": chips,
+                    "note": (b.get("notes") or [{}])[-1].get("text", "") if b.get("notes") else "",
+                }
+            )
+    if args.json:
+        print(json.dumps(rows))
+        return
+    by_prof: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        by_prof.setdefault(r["profile"], []).append(r)
+    for prof, items in by_prof.items():
+        print(f"# {prof}")
+        for r in items:
+            chip_s = " ".join(r["chips"])
+            nxt = r["next"]
+            print(
+                f"{r['id']}  [{r['status']}]  {r['title']}  {chip_s}"
+                + (f"  next={nxt}" if nxt else "")
+            )
 
 def parse_jira_token(token: str) -> str:
     token = token.strip()
@@ -754,13 +780,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("ls", help="open blocks (both profiles; cwd no longer hides ithaka)")
     sp.add_argument("--all", action="store_true", help="include recent done")
     sp.add_argument("--profile", choices=["ithaka", "personal"], help="one profile only")
+    sp.add_argument("--json", action="store_true", help="machine-readable list for noctalia-slate")
     sp.add_argument(
         "--all-profiles",
         action="store_true",
         help=argparse.SUPPRESS,
     )  # ponytail: kept as no-op alias; ls already shows both
     sp.set_defaults(func=cmd_ls)
-
     sp = sub.add_parser(
         "capture",
         help="jira key/url → block + jira child (no session; use open to launch)",

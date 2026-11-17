@@ -1,12 +1,28 @@
 # noctalia-slate
 
-Noctalia plugin for [slate](https://github.com/BasitAli/slate). **Phase 2 — stub.**
+## Plugin
 
-Planned: bar entry, panel of open **block** cards, clipboard watch → notification
-**Add to slate** (`slate review` / `slate capture`).
+Native Noctalia v5 plugin for [slate](https://github.com/BasitAli/slate).
 
-Register (once UI exists):
+- **Bar widget** `basitali/noctalia-slate:widget` — open-block count; offer dot when clipboard matches
+- **Panel** `basitali/noctalia-slate:panel` — block cards (next/notes/chips), Add/Open/Done
+- **Service** — polls clipboard → `notify-send` **Add to slate** / **Open session**; refreshes via `slate ls --json`
+
+Requires `slate` on `PATH`.
+
+## Usage
 
 ```sh
-noctalia msg plugins source add slate git https://github.com/BasitAli/slate
+# local iterate (preferred while hacking)
+noctalia msg plugins source add slate path /work/Developer/personal/slate
+# or after push:
+# noctalia msg plugins source add slate git https://github.com/BasitAli/slate
+
+noctalia msg plugins enable basitali/noctalia-slate
 ```
+
+Add bar widget type `basitali/noctalia-slate:widget` (Settings → Bar, or `[widget.slate]` in settings.toml).
+
+IPC: `noctalia msg panel-toggle basitali/noctalia-slate:panel`
+
+Copy a Jira browse URL / `KEY` / GitHub-GitLab PR URL → notification **Add to slate** (no auto-add). Setting `clipboard_offer = false` disables.

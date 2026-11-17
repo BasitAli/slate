@@ -65,3 +65,15 @@ Merge `examples/wisp-slate-commands.toml` into `~/.config/wisp/commands.toml`, r
 Phrases: *slate list* / *what's on my slate*, *slate open*, *slate capture*, *slate review*.
 Each opens kitty and types the CLI (Wisp has no shell-exec). After *open* / *capture* / *review*,
 finish the KEY or URL yourself.
+
+## Noctalia panel
+
+```sh
+noctalia msg plugins source add slate path /work/Developer/personal/slate
+noctalia msg plugins enable basitali/noctalia-slate
+# bar: widget type basitali/noctalia-slate:widget (already in flake noctalia-settings.toml)
+noctalia msg panel-toggle basitali/noctalia-slate:panel
+```
+
+Copy a Jira URL / `KEY` / PR URL → notification **Add to slate** (or use the panel banner).
+`slate ls --json` feeds the cards.
