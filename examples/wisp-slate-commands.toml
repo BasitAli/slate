@@ -64,5 +64,6 @@ action = "wait_window"
 arg = "kitty"
 [[command.step]]
 action = "type"
-arg = "slate block start "
-# dictate title; optional: --next "…" then enter
+arg = "slate block start"
+press_enter = true
+# untitled card; optional spoken chain: type Buy milk --next eggs press enter
