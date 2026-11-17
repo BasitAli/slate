@@ -28,6 +28,4 @@ IPC: `noctalia msg panel-toggle basitali/noctalia-slate:panel`
 Launcher: type **`/slate`** — New todo, Open My Slate, pick an open block (Enter opens session).
 `/slate Buy milk` offers creating that titled card.
 Paste a Jira / PR / Slack link (or `KEY`) after `/slate ` → **Open session** / **Park only**.
-
-Copy a Jira / PR/MR / Slack permalink → launcher opens at **`/slate …`** with **Open session** /
-**Park only** (no notify-send actions). `clipboard_offer = false` disables the watch.
+No automatic clipboard watch — you open the launcher and paste.
