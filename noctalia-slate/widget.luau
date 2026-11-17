@@ -1,7 +1,8 @@
 --!nonstrict
--- Bar pill: open-block count + offer dot. Click opens panel.
+-- Bar pill: "My Slate" label + open-block count + offer dot. Click opens panel.
 
 local PANEL = "basitali/noctalia-slate:panel"
+local LABEL = "My Slate"
 
 local function cfg(key)
   return noctalia.getConfig(key)
@@ -21,9 +22,16 @@ local function render()
   if type(glyph) ~= "string" or glyph == "" then
     glyph = "clipboard-list"
   end
+  local color = hasOffer and "primary" or "on_surface"
 
   local kids = {
-    ui.glyph({ name = glyph, color = hasOffer and "primary" or "on_surface" }),
+    ui.glyph({ name = glyph, color = color }),
+    ui.label({
+      text = LABEL,
+      fontSize = 11,
+      fontWeight = "bold",
+      color = color,
+    }),
   }
   if n > 0 then
     table.insert(kids, ui.label({
@@ -42,13 +50,19 @@ local function render()
     }))
   end
 
-  barWidget.render(ui.row({ align = "center", gap = 4 }, kids))
-  if hasOffer then
-    barWidget.setTooltip("Clipboard → Add to slate")
-  elseif n == 0 then
-    barWidget.setTooltip(noctalia.tr("empty"))
+  -- Vertical (right) bar: stack so "My Slate" sits at the top section cleanly.
+  if barWidget.isVertical and barWidget.isVertical() then
+    barWidget.render(ui.column({ align = "center", gap = 2 }, kids))
   else
-    barWidget.setTooltip(noctalia.tr("title") .. ": " .. n .. " open")
+    barWidget.render(ui.row({ align = "center", gap = 4 }, kids))
+  end
+
+  if hasOffer then
+    barWidget.setTooltip("Clipboard → Open session")
+  elseif n == 0 then
+    barWidget.setTooltip(LABEL)
+  else
+    barWidget.setTooltip(LABEL .. ": " .. n .. " open")
   end
 end
 

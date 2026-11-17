@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Bar pill shows **My Slate** label; sits at bar `start` (top of the right bar)
 - noctalia-slate panel cards match sticky-notes style (filled `surface_container`,
   radius 8, separator, outline sm actions)
 
