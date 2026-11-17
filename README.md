@@ -1,8 +1,8 @@
 # slate
 
 Personal work ledger: **block cards** (status, next steps, notes) with linked children —
-Jira, agent sessions, PRs, Slack, and more. CLI today; [noctalia-slate](noctalia-slate/)
-and Wisp next. See [ROADMAP.md](ROADMAP.md).
+Jira, agent sessions, PRs, Slack, and more. CLI + [noctalia-slate](noctalia-slate/) panel /
+clipboard offer; Wisp macros optional. See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 
