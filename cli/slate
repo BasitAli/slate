@@ -1,0 +1,772 @@
+#!/usr/bin/env python3
+"""slate — personal work ledger (block cards + linked children)."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import secrets
+import subprocess
+import sys
+import tomllib
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "slate"
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "slate"
+STATE = CONFIG / "state.json"
+ITHAKA_PREFIX = "/work/Developer/Ithaka"
+
+JIRA_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
+JIRA_BROWSE_RE = re.compile(r"/browse/([A-Z][A-Z0-9]+-\d+)", re.I)
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def new_id() -> str:
+    return secrets.token_hex(4)
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(f"slate: {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def load_state() -> dict[str, Any]:
+    if STATE.exists():
+        return json.loads(STATE.read_text())
+    return {}
+
+
+def save_state(state: dict[str, Any]) -> None:
+    CONFIG.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state, indent=2) + "\n")
+
+
+def profile_for_cwd(cwd: str | None = None) -> str:
+    cwd = os.path.realpath(cwd or os.getcwd())
+    if cwd == ITHAKA_PREFIX or cwd.startswith(ITHAKA_PREFIX + os.sep):
+        return "ithaka"
+    return "personal"
+
+
+def active_profile() -> str:
+    state = load_state()
+    if state.get("pinned"):
+        return state["pinned"]
+    return profile_for_cwd()
+
+
+def profile_dir(profile: str | None = None) -> Path:
+    p = DATA / (profile or active_profile())
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def nodes_path(profile: str | None = None) -> Path:
+    return profile_dir(profile) / "nodes.jsonl"
+
+
+def edges_path(profile: str | None = None) -> Path:
+    return profile_dir(profile) / "edges.jsonl"
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line:
+            out.append(json.loads(line))
+    return out
+
+
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in rows))
+
+
+def append_jsonl(path: Path, row: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(row, separators=(",", ":")) + "\n")
+
+
+def load_nodes(profile: str | None = None) -> list[dict[str, Any]]:
+    return read_jsonl(nodes_path(profile))
+
+
+def save_nodes(nodes: list[dict[str, Any]], profile: str | None = None) -> None:
+    write_jsonl(nodes_path(profile), nodes)
+
+
+def load_edges(profile: str | None = None) -> list[dict[str, Any]]:
+    return read_jsonl(edges_path(profile))
+
+
+def save_edges(edges: list[dict[str, Any]], profile: str | None = None) -> None:
+    write_jsonl(edges_path(profile), edges)
+
+
+def get_node(nid: str, profile: str | None = None) -> dict[str, Any] | None:
+    for n in load_nodes(profile):
+        if n["id"] == nid:
+            return n
+    return None
+
+
+def resolve_node(token: str, profile: str | None = None) -> dict[str, Any] | None:
+    """id | jira:KEY | kind:ref | url."""
+    nodes = load_nodes(profile)
+    if re.fullmatch(r"[0-9a-f]{8}", token):
+        for n in nodes:
+            if n["id"] == token:
+                return n
+    if token.startswith("jira:"):
+        key = token.split(":", 1)[1].upper()
+        for n in nodes:
+            if n.get("kind") == "jira" and (n.get("refs") or {}).get("jira") == key:
+                return n
+    if token.startswith(("http://", "https://")):
+        for n in nodes:
+            if (n.get("refs") or {}).get("url") == token:
+                return n
+    # bare jira key
+    m = JIRA_KEY_RE.fullmatch(token)
+    if m:
+        key = m.group(1).upper()
+        for n in nodes:
+            if n.get("kind") == "jira" and (n.get("refs") or {}).get("jira") == key:
+                return n
+    return None
+
+
+def profile_root(profile: str | None = None) -> str | None:
+    profile = profile or active_profile()
+    cfg = CONFIG / f"{profile}.toml"
+    if not cfg.exists():
+        return None
+    data = tomllib.loads(cfg.read_text())
+    root = data.get("root")
+    return os.path.realpath(root) if root else None
+
+
+def resolve_root(explicit: str | None) -> str:
+    if explicit:
+        return os.path.realpath(explicit)
+    pr = profile_root()
+    if pr:
+        return pr
+    return os.path.realpath(os.getcwd())
+
+
+def neighbors(nid: str, profile: str | None = None) -> list[str]:
+    out = []
+    for e in load_edges(profile):
+        if e["a"] == nid:
+            out.append(e["b"])
+        elif e["b"] == nid:
+            out.append(e["a"])
+    return out
+
+
+def ensure_link(a: str, b: str, profile: str | None = None) -> None:
+    if a == b:
+        die("cannot link a node to itself")
+    x, y = sorted([a, b])
+    edges = load_edges(profile)
+    for e in edges:
+        if sorted([e["a"], e["b"]]) == [x, y]:
+            return
+    edges.append({"id": new_id(), "a": x, "b": y, "rel": "related", "at": now()})
+    save_edges(edges, profile)
+
+
+def update_node(nid: str, **fields: Any) -> dict[str, Any]:
+    nodes = load_nodes()
+    for i, n in enumerate(nodes):
+        if n["id"] == nid:
+            n.update(fields)
+            nodes[i] = n
+            save_nodes(nodes)
+            return n
+    die(f"unknown node {nid}")
+
+
+def cmd_profile(args: argparse.Namespace) -> None:
+    state = load_state()
+    if args.name is None:
+        pinned = state.get("pinned")
+        auto = profile_for_cwd()
+        active = pinned or auto
+        print(f"active: {active}" + (f" (pinned)" if pinned else f" (auto from cwd → {auto})"))
+        return
+    if args.name == "auto":
+        state.pop("pinned", None)
+        save_state(state)
+        print(f"unpinned; active → {profile_for_cwd()}")
+        return
+    if args.name not in ("ithaka", "personal"):
+        die("profile must be ithaka, personal, or auto")
+    state["pinned"] = args.name
+    save_state(state)
+    print(f"pinned: {args.name}")
+
+
+def cmd_block_start(args: argparse.Namespace) -> None:
+    title = " ".join(args.title) if args.title else "untitled"
+    nid = new_id()
+    node = {
+        "id": nid,
+        "profile": active_profile(),
+        "kind": "block",
+        "title": title,
+        "status": "open",
+        "next": args.next or "",
+        "notes": [],
+        "started": now(),
+        "ended": None,
+        "refs": {},
+    }
+    append_jsonl(nodes_path(), node)
+    print(nid)
+
+
+def find_block_for_jira(key: str) -> dict[str, Any] | None:
+    key = key.upper()
+    jira = resolve_node(f"jira:{key}")
+    if not jira:
+        return None
+    for nid in neighbors(jira["id"]):
+        n = get_node(nid)
+        if n and n.get("kind") == "block" and n.get("status") == "open":
+            return n
+    return None
+
+
+def ensure_jira(key: str, title: str | None = None) -> dict[str, Any]:
+    key = key.upper()
+    existing = resolve_node(f"jira:{key}")
+    if existing:
+        return existing
+    nid = new_id()
+    node = {
+        "id": nid,
+        "profile": active_profile(),
+        "kind": "jira",
+        "title": title or key,
+        "status": "open",
+        "notes": [],
+        "started": now(),
+        "ended": None,
+        "refs": {"jira": key},
+    }
+    append_jsonl(nodes_path(), node)
+    return node
+
+
+def ensure_block_for_jira(key: str, title: str | None = None) -> dict[str, Any]:
+    key = key.upper()
+    block = find_block_for_jira(key)
+    if block:
+        return block
+    jira = ensure_jira(key, title)
+    bid = new_id()
+    block = {
+        "id": bid,
+        "profile": active_profile(),
+        "kind": "block",
+        "title": title or f"{key}",
+        "status": "open",
+        "next": "",
+        "notes": [],
+        "started": now(),
+        "ended": None,
+        "refs": {},
+    }
+    append_jsonl(nodes_path(), block)
+    ensure_link(bid, jira["id"])
+    return block
+
+
+def cmd_start(args: argparse.Namespace) -> None:
+    title = " ".join(args.title) if args.title else "session"
+    root = resolve_root(args.root)
+    block_id = args.block
+    if args.jira:
+        block = ensure_block_for_jira(args.jira, title=f"{args.jira} · {title}")
+        block_id = block["id"]
+    elif not block_id:
+        # create a loose block for the session
+        block_id = new_id()
+        append_jsonl(
+            nodes_path(),
+            {
+                "id": block_id,
+                "profile": active_profile(),
+                "kind": "block",
+                "title": title,
+                "status": "open",
+                "next": "",
+                "notes": [],
+                "started": now(),
+                "ended": None,
+                "refs": {},
+            },
+        )
+    sid = new_id()
+    node = {
+        "id": sid,
+        "profile": active_profile(),
+        "kind": "agent_session",
+        "title": title,
+        "status": "open",
+        "root": root,
+        "notes": [],
+        "started": now(),
+        "ended": None,
+        "refs": {},
+        "kitty_window_id": os.environ.get("KITTY_WINDOW_ID"),
+    }
+    append_jsonl(nodes_path(), node)
+    ensure_link(sid, block_id)
+    # best-effort kitty title
+    if os.environ.get("KITTY_WINDOW_ID"):
+        try:
+            env = os.environ.copy()
+            env.pop("KITTY_LISTEN_ON", None)
+            subprocess.run(
+                ["kitten", "@", "set-tab-title", "--match", "state:self", title],
+                env=env,
+                check=False,
+                capture_output=True,
+            )
+        except FileNotFoundError:
+            pass
+    print(sid)
+    print(f"block={block_id} root={root}", file=sys.stderr)
+
+
+def cmd_add(args: argparse.Namespace) -> None:
+    kind = args.kind
+    ref = args.ref
+    title = args.title
+    if kind == "jira":
+        key = ref.upper()
+        if key.startswith("JIRA:"):
+            key = key.split(":", 1)[1]
+        node = ensure_jira(key, title)
+        print(node["id"])
+        return
+    if kind == "code_review":
+        url = ref
+        existing = resolve_node(url)
+        if existing:
+            print(existing["id"])
+            return
+        nid = new_id()
+        append_jsonl(
+            nodes_path(),
+            {
+                "id": nid,
+                "profile": active_profile(),
+                "kind": "code_review",
+                "title": title or review_title_from_url(url),
+                "status": "open",
+                "notes": [],
+                "started": now(),
+                "ended": None,
+                "refs": {"url": url},
+            },
+        )
+        print(nid)
+        return
+    # generic stub
+    nid = new_id()
+    append_jsonl(
+        nodes_path(),
+        {
+            "id": nid,
+            "profile": active_profile(),
+            "kind": kind,
+            "title": title or ref,
+            "status": "open",
+            "notes": [],
+            "started": now(),
+            "ended": None,
+            "refs": {"ref": ref},
+        },
+    )
+    print(nid)
+
+
+def review_title_from_url(url: str) -> str:
+    path = urlparse(url).path.rstrip("/")
+    parts = path.split("/")
+    if "merge_requests" in parts:
+        i = parts.index("merge_requests")
+        # GitLab: /group/repo/-/merge_requests/N
+        if i >= 2 and parts[i - 1] == "-":
+            repo = parts[i - 2]
+        else:
+            repo = parts[i - 1] if i > 0 else "repo"
+        num = parts[i + 1] if i + 1 < len(parts) else "?"
+        return f"Review: {repo}!{num}"
+    if "pull" in parts:
+        i = parts.index("pull")
+        repo = parts[i - 1] if i > 0 else "repo"
+        num = parts[i + 1] if i + 1 < len(parts) else "?"
+        return f"Review: {repo}#{num}"
+    host = urlparse(url).hostname or "review"
+    return f"Review: {host}"
+
+
+def cmd_link(args: argparse.Namespace) -> None:
+    a = resolve_node(args.a) or die(f"unknown {args.a}")
+    b = resolve_node(args.b) or die(f"unknown {args.b}")
+    ensure_link(a["id"], b["id"])
+    print(f"linked {a['id']} — {b['id']}")
+
+
+def cmd_unlink(args: argparse.Namespace) -> None:
+    a = resolve_node(args.a) or die(f"unknown {args.a}")
+    b = resolve_node(args.b) or die(f"unknown {args.b}")
+    x, y = sorted([a["id"], b["id"]])
+    edges = [e for e in load_edges() if sorted([e["a"], e["b"]]) != [x, y]]
+    save_edges(edges)
+    print("unlinked")
+
+
+def cmd_note(args: argparse.Namespace) -> None:
+    text = " ".join(args.text)
+    nid = args.id
+    if not nid:
+        die("note requires a node id (block or session)")
+    node = resolve_node(nid) or die(f"unknown {nid}")
+    notes = list(node.get("notes") or [])
+    notes.append({"at": now(), "text": text})
+    update_node(node["id"], notes=notes)
+    print(node["id"])
+
+
+def cmd_next(args: argparse.Namespace) -> None:
+    text = " ".join(args.text)
+    node = resolve_node(args.block) or die(f"unknown {args.block}")
+    if node.get("kind") != "block":
+        die("next is for block cards")
+    update_node(node["id"], next=text)
+    print(node["id"])
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    node = resolve_node(args.block) or die(f"unknown {args.block}")
+    update_node(node["id"], status=args.status)
+    if args.status == "done":
+        update_node(node["id"], ended=now())
+    print(node["id"])
+
+
+def cmd_done(args: argparse.Namespace) -> None:
+    node = resolve_node(args.id) or die(f"unknown {args.id}")
+    update_node(node["id"], status="done", ended=now())
+    print(node["id"])
+
+
+def cmd_done_block(args: argparse.Namespace) -> None:
+    token = args.id
+    node = resolve_node(token)
+    if not node and JIRA_KEY_RE.fullmatch(token or ""):
+        node = find_block_for_jira(token)
+    if not node:
+        # jira:KEY → block
+        if token.startswith("jira:"):
+            node = find_block_for_jira(token.split(":", 1)[1])
+        elif token.startswith(("http://", "https://")):
+            cr = resolve_node(token)
+            if cr:
+                for nid in neighbors(cr["id"]):
+                    n = get_node(nid)
+                    if n and n.get("kind") == "block":
+                        node = n
+                        break
+    if not node:
+        die(f"unknown block {token}")
+    if node.get("kind") != "block":
+        # if given a child, find its block
+        for nid in neighbors(node["id"]):
+            n = get_node(nid)
+            if n and n.get("kind") == "block":
+                node = n
+                break
+        else:
+            die("not a block (and no linked block found)")
+    update_node(node["id"], status="done", ended=now())
+    for nid in neighbors(node["id"]):
+        child = get_node(nid)
+        if child and child.get("status") == "open":
+            update_node(nid, status="done", ended=now())
+    print(node["id"])
+
+
+def cmd_show(args: argparse.Namespace) -> None:
+    node = resolve_node(args.id) or die(f"unknown {args.id}")
+    print(json.dumps(node, indent=2))
+    kids = []
+    for nid in neighbors(node["id"]):
+        n = get_node(nid)
+        if n:
+            kids.append({"id": n["id"], "kind": n["kind"], "title": n.get("title"), "status": n.get("status")})
+    if kids:
+        print("--- neighbors ---")
+        for k in kids:
+            print(f"  {k['id']}  {k['kind']:14}  [{k['status']}]  {k['title']}")
+
+
+def cmd_ls(args: argparse.Namespace) -> None:
+    profiles = [active_profile()]
+    if args.all_profiles:
+        profiles = ["ithaka", "personal"]
+    for prof in profiles:
+        nodes = load_nodes(prof)
+        blocks = [n for n in nodes if n.get("kind") == "block"]
+        if not args.all:
+            blocks = [n for n in blocks if n.get("status") == "open"]
+        else:
+            blocks = blocks[-20:]
+        if args.all_profiles and blocks:
+            print(f"# {prof}")
+        for b in blocks:
+            nxt = b.get("next") or ""
+            chips = []
+            for nid in neighbors(b["id"], prof):
+                c = get_node(nid) if prof == active_profile() else None
+                # cross-profile get: load from that profile
+                if args.all_profiles:
+                    for n in load_nodes(prof):
+                        if n["id"] == nid:
+                            c = n
+                            break
+                if c:
+                    if c["kind"] == "jira":
+                        chips.append((c.get("refs") or {}).get("jira", "jira"))
+                    elif c["kind"] == "code_review":
+                        chips.append("pr")
+                    elif c["kind"] == "agent_session":
+                        chips.append("sess")
+            chip_s = " ".join(chips)
+            print(f"{b['id']}  [{b.get('status')}]  {b.get('title')}  {chip_s}" + (f"  next={nxt}" if nxt else ""))
+
+
+def parse_jira_token(token: str) -> str:
+    token = token.strip()
+    if token.startswith(("http://", "https://")):
+        m = JIRA_BROWSE_RE.search(token)
+        if m:
+            return m.group(1).upper()
+        m = JIRA_KEY_RE.search(token)
+        if m:
+            return m.group(1).upper()
+        die(f"no jira key in url: {token}")
+    if token.upper().startswith("JIRA:"):
+        return token.split(":", 1)[1].upper()
+    m = JIRA_KEY_RE.fullmatch(token.upper()) if token.isupper() or "-" in token else JIRA_KEY_RE.fullmatch(token)
+    # accept PROJ-123 case-insensitive
+    m = re.fullmatch(r"([A-Za-z][A-Za-z0-9]+-\d+)", token)
+    if m:
+        return m.group(1).upper()
+    die(f"not a jira key or browse url: {token}")
+
+
+def cmd_capture(args: argparse.Namespace) -> None:
+    key = parse_jira_token(args.token)
+    block = ensure_block_for_jira(key, title=args.title or key)
+    print(block["id"])
+    print(f"jira={key}", file=sys.stderr)
+
+
+def cmd_review(args: argparse.Namespace) -> None:
+    url = args.url
+    if not url.startswith(("http://", "https://")):
+        die("review expects an http(s) URL")
+    existing = resolve_node(url)
+    if existing:
+        cr_id = existing["id"]
+    else:
+        cr_id = new_id()
+        append_jsonl(
+            nodes_path(),
+            {
+                "id": cr_id,
+                "profile": active_profile(),
+                "kind": "code_review",
+                "title": args.title or review_title_from_url(url),
+                "status": "open",
+                "notes": [],
+                "started": now(),
+                "ended": None,
+                "refs": {"url": url},
+            },
+        )
+    # find or create block linked to this review
+    block = None
+    for nid in neighbors(cr_id):
+        n = get_node(nid)
+        if n and n.get("kind") == "block" and n.get("status") == "open":
+            block = n
+            break
+    if not block:
+        bid = new_id()
+        block = {
+            "id": bid,
+            "profile": active_profile(),
+            "kind": "block",
+            "title": args.title or review_title_from_url(url),
+            "status": "open",
+            "next": "read diff / leave comments",
+            "notes": [],
+            "started": now(),
+            "ended": None,
+            "refs": {},
+        }
+        append_jsonl(nodes_path(), block)
+        ensure_link(bid, cr_id)
+    if args.jira:
+        j = ensure_jira(args.jira.upper())
+        ensure_link(block["id"], j["id"])
+    print(block["id"])
+    print(f"code_review={cr_id}", file=sys.stderr)
+
+
+def cmd_open(args: argparse.Namespace) -> None:
+    key = parse_jira_token(args.jira)
+    root = resolve_root(args.root)
+    if not Path(root).is_dir():
+        die(f"root is not a directory: {root}")
+    # park jira+block before launch
+    block = ensure_block_for_jira(key, title=args.title or key)
+    seed = f"Start working on {key}."
+    if args.title:
+        seed += f" {args.title}"
+    # kitty + claude; skill will start/link session
+    cmd = [
+        "kitty",
+        "--directory",
+        root,
+        "-o",
+        f"tab_title={key}",
+        "claude",
+        seed,
+    ]
+    print(f"block={block['id']} root={root}", file=sys.stderr)
+    try:
+        subprocess.Popen(cmd, start_new_session=True)
+    except FileNotFoundError as e:
+        die(f"launch failed: {e}")
+    print(block["id"])
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="slate", description="Personal work ledger")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("profile", help="show / pin / auto profile")
+    sp.add_argument("name", nargs="?", help="ithaka | personal | auto")
+    sp.set_defaults(func=cmd_profile)
+
+    sp = sub.add_parser("block", help="block card ops")
+    bsub = sp.add_subparsers(dest="block_cmd", required=True)
+    bsp = bsub.add_parser("start", help="create open block")
+    bsp.add_argument("title", nargs="*")
+    bsp.add_argument("--next", default="")
+    bsp.set_defaults(func=cmd_block_start)
+
+    sp = sub.add_parser("start", help="agent_session linked to a block")
+    sp.add_argument("title", nargs="*")
+    sp.add_argument("--root")
+    sp.add_argument("--block")
+    sp.add_argument("--jira")
+    sp.set_defaults(func=cmd_start)
+
+    sp = sub.add_parser("add", help="add stub node")
+    sp.add_argument("kind", choices=["jira", "code_review", "slack", "pagerduty"])
+    sp.add_argument("ref")
+    sp.add_argument("--title")
+    sp.set_defaults(func=cmd_add)
+
+    sp = sub.add_parser("link")
+    sp.add_argument("a")
+    sp.add_argument("b")
+    sp.set_defaults(func=cmd_link)
+
+    sp = sub.add_parser("unlink")
+    sp.add_argument("a")
+    sp.add_argument("b")
+    sp.set_defaults(func=cmd_unlink)
+
+    sp = sub.add_parser("note")
+    sp.add_argument("id")
+    sp.add_argument("text", nargs="+")
+    sp.set_defaults(func=cmd_note)
+
+    sp = sub.add_parser("next")
+    sp.add_argument("block")
+    sp.add_argument("text", nargs="+")
+    sp.set_defaults(func=cmd_next)
+
+    sp = sub.add_parser("status")
+    sp.add_argument("block")
+    sp.add_argument("status", choices=["open", "done"])
+    sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("done")
+    sp.add_argument("id")
+    sp.set_defaults(func=cmd_done)
+
+    sp = sub.add_parser("done-block")
+    sp.add_argument("id")
+    sp.set_defaults(func=cmd_done_block)
+
+    sp = sub.add_parser("show")
+    sp.add_argument("id")
+    sp.set_defaults(func=cmd_show)
+
+    sp = sub.add_parser("ls")
+    sp.add_argument("--all", action="store_true")
+    sp.add_argument("--all-profiles", action="store_true")
+    sp.set_defaults(func=cmd_ls)
+
+    sp = sub.add_parser("capture", help="jira key/url → block + jira child")
+    sp.add_argument("token")
+    sp.add_argument("--title")
+    sp.set_defaults(func=cmd_capture)
+
+    sp = sub.add_parser("review", help="PR/MR url → block + code_review")
+    sp.add_argument("url")
+    sp.add_argument("--jira")
+    sp.add_argument("--title")
+    sp.set_defaults(func=cmd_review)
+
+    sp = sub.add_parser("open", help="kitty+claude seeded on jira key")
+    sp.add_argument("jira")
+    sp.add_argument("--root")
+    sp.add_argument("--title")
+    sp.set_defaults(func=cmd_open)
+
+    return p
+
+
+def main() -> None:
+    # allow `slate block start` via argparse nesting — handled
+    parser = build_parser()
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,9 @@
+# Noctalia plugin source index (Phase 2: noctalia-slate).
+# noctalia msg plugins source add slate git https://github.com/BasitAli/slate
+
+[[plugin]]
+id = "basitali/noctalia-slate"
+path = "noctalia-slate"
+name = "Slate"
+description = "Personal work ledger — block cards (Jira, sessions, reviews)"
+enabled = false

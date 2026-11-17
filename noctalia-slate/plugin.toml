@@ -1,0 +1,7 @@
+id = "basitali/noctalia-slate"
+name = "Slate"
+description = "Block cards for Jira, agent sessions, and reviews (Phase 2 — stub)"
+version = "0.1.0"
+authors = ["Basit Ali"]
+# Phase 2: widget + panel + clipboard "Add to slate" notification.
+# Until then this stub exists so the source can be registered.

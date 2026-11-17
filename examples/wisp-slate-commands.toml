@@ -1,0 +1,15 @@
+# Merge into ~/.config/wisp/commands.toml (machine-local; Phase 3).
+# Requires `slate` on PATH.
+
+[[command]]
+phrases = ["slate list", "what's on my slate"]
+[[command.step]]
+action = "exec"
+arg = "slate ls"
+
+[[command]]
+phrases = ["slate open"]
+# Prefer: slate open jira:KEY — extend with typed KEY via dictation later
+[[command.step]]
+action = "type"
+arg = "slate open jira:"
