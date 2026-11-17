@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4 — 2026-11-18
+
+### Changed
+
+- Clipboard offer opens the **`/slate` launcher** instead of notify-send action buttons
+
 ## 0.2.3 — 2026-11-18
 
 ### Added

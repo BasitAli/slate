@@ -10,7 +10,7 @@
   "open": "Open",
   "refresh": "Refresh",
   "settings.clipboard_offer.label": "Clipboard offer",
-  "settings.clipboard_offer.description": "When you copy a Jira, PR/MR, or Slack URL, offer Open session / Park only.",
+  "settings.clipboard_offer.description": "When you copy a Jira, PR/MR, or Slack URL, open the launcher at /slate with Open session / Park only.",
   "settings.poll_ms.label": "Clipboard poll (ms)",
   "settings.poll_ms.description": "How often to read the clipboard for Jira/PR matches.",
   "settings.blocks_refresh_ms.label": "Blocks refresh (ms)",

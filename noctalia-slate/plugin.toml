@@ -6,7 +6,7 @@
 
 id = "basitali/noctalia-slate"
 name = "Slate"
-version = "0.2.3"
+version = "0.2.4"
 plugin_api = 9
 author = "basitali"
 license = "MIT"

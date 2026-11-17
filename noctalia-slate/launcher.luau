@@ -170,6 +170,7 @@ end
 function onActivate(id)
   local linkOpen = id:match("^link:open:(.+)$")
   if linkOpen then
+    noctalia.state.set("offer", nil)
     noctalia.runAsync("slate open " .. shQuote(linkOpen), function(r)
       if r.exitCode == 0 then
         refresh()
@@ -182,6 +183,7 @@ function onActivate(id)
 
   local linkPark = id:match("^link:park:(.+)$")
   if linkPark then
+    noctalia.state.set("offer", nil)
     noctalia.runAsync("slate park " .. shQuote(linkPark), function(r)
       if r.exitCode == 0 then
         noctalia.notify("My Slate", "Parked")

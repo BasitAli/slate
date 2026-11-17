@@ -1,10 +1,8 @@
 --!nonstrict
 -- Headless [[service]]: clipboard offer + slate ls --json refresh.
--- Jira / PR/MR / Slack permalink → Open session (primary) or Park only.
+-- Jira / PR/MR / Slack permalink → open launcher at /slate <token>.
 
 local lastClip = ""
-local lastOffered = ""
-local offering = false
 local lastBlocksAt = 0
 
 local function cfg(key)
@@ -88,30 +86,16 @@ local function doPark(token: string)
   runSlate("park " .. shQuote(token), "Parked")
 end
 
+-- Clipboard hit → open launcher prefilled with /slate <token> (replaces notify-send actions).
 local function offer(kind: string, token: string, label: string)
-  if offering then
-    return
-  end
-  offering = true
-  lastOffered = token
   noctalia.state.set("offer", { kind = kind, token = token, label = label })
-
-  local cmd = "notify-send -a slate -t 20000"
-    .. " -A open='Open session'"
-    .. " -A park='Park only'"
-    .. " -A dismiss=Dismiss 'Slate' "
-    .. shQuote(label)
-
-  noctalia.runAsync(cmd, function(r)
-    offering = false
-    local act = noctalia.string.trim(r.stdout or "")
-    if act == "open" then
-      doOpen(token)
-    elseif act == "park" then
-      doPark(token)
+  local ctx = "/slate " .. token
+  noctalia.runAsync("noctalia msg panel-open launcher " .. shQuote(ctx), function(r)
+    if r.exitCode ~= 0 then
+      noctalia.log("slate launcher open failed: " .. tostring(r.stderr))
+      noctalia.notify("My Slate", label .. " — use /slate in the launcher")
     end
-    noctalia.state.set("offer", nil)
-  end, 25000)
+  end, 5000)
 end
 
 local lastReqSeq = 0
@@ -167,7 +151,7 @@ function update()
   lastClip = text
 
   local kind, token, label = matchClip(text)
-  if not kind or offering then
+  if not kind then
     return
   end
   offer(kind, token, label)

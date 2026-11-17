@@ -79,5 +79,5 @@ noctalia msg plugins enable basitali/noctalia-slate
 noctalia msg panel-toggle basitali/noctalia-slate:panel
 ```
 
-Copy a Jira URL / `KEY` / PR URL → notification **Add to slate** (or use the panel banner).
+Copy a Jira / PR/MR / Slack permalink → **Open session** (or **Park only**).
 `slate ls --json` feeds the cards.

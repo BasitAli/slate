@@ -29,5 +29,5 @@ Launcher: type **`/slate`** — New todo, Open My Slate, pick an open block (Ent
 `/slate Buy milk` offers creating that titled card.
 Paste a Jira / PR / Slack link (or `KEY`) after `/slate ` → **Open session** / **Park only**.
 
-Copy a Jira / PR/MR / Slack permalink → **Open session** (kitty+claude) or **Park only**.
-`clipboard_offer = false` disables the watch.
+Copy a Jira / PR/MR / Slack permalink → launcher opens at **`/slate …`** with **Open session** /
+**Park only** (no notify-send actions). `clipboard_offer = false` disables the watch.
