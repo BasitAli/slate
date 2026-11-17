@@ -57,10 +57,8 @@ local function render()
     barWidget.render(ui.row({ align = "center", gap = 4 }, kids))
   end
 
-  if hasOffer then
-    barWidget.setTooltip("Clipboard → Open session")
-  elseif n == 0 then
-    barWidget.setTooltip(LABEL)
+  if n == 0 then
+    barWidget.setTooltip(LABEL .. " — /slate in launcher")
   else
     barWidget.setTooltip(LABEL .. ": " .. n .. " open")
   end

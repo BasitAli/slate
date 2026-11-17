@@ -4,12 +4,12 @@
 [[plugin]]
 id = "basitali/noctalia-slate"
 name = "Slate"
-version = "0.2.4"
+version = "0.2.5"
 updated_at = 1763410000
 added_at = 1763390000
 author = "basitali"
 license = "MIT"
 icon = "clipboard-list"
-description = "Block cards for open work; clipboard offer for Jira/PR/Slack; /slate launcher."
+description = "Block cards for open work; /slate launcher for todos and links."
 plugin_api = 9
-tags = ["slate", "jira", "bar", "panel", "clipboard", "launcher"]
+tags = ["slate", "jira", "bar", "panel", "launcher"]

@@ -6,7 +6,7 @@ Native Noctalia v5 plugin for [slate](https://github.com/BasitAli/slate).
 
 - **Bar widget** `basitali/noctalia-slate:widget` — open-block count; offer dot when clipboard matches
 - **Panel** `basitali/noctalia-slate:panel` — block cards (next/notes/chips), Add/Open/Done
-- **Service** — polls clipboard → `notify-send` **Open session** / **Park only**; refreshes via `slate ls --json`
+- **Service** — refreshes via `slate ls --json`
 
 Requires `slate` on `PATH`.
 

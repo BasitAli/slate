@@ -1,10 +1,16 @@
 # Changelog
 
+## 0.2.5 — 2026-11-18
+
+### Changed
+
+- No auto clipboard watch — paste into **`/slate`** yourself
+
 ## 0.2.4 — 2026-11-18
 
 ### Changed
 
-- Clipboard offer opens the **`/slate` launcher** instead of notify-send action buttons
+- Clipboard offer opened the **`/slate` launcher** instead of notify-send (reverted in 0.2.5)
 
 ## 0.2.3 — 2026-11-18
 

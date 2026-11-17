@@ -1,8 +1,7 @@
 --!nonstrict
--- Headless [[service]]: clipboard offer + slate ls --json refresh.
--- Jira / PR/MR / Slack permalink → open launcher at /slate <token>.
+-- Headless [[service]]: refreshes slate ls --json for panel/widget.
+-- Clipboard → launcher is manual: open launcher, type /slate, paste.
 
-local lastClip = ""
 local lastBlocksAt = 0
 
 local function cfg(key)
@@ -18,38 +17,6 @@ local function nowMs(): number
     return noctalia.nowMs()
   end
   return (tonumber(noctalia.formatTime("%s")) or 0) * 1000
-end
-
-local function matchClip(text: string)
-  if type(text) ~= "string" then
-    return nil
-  end
-  text = noctalia.string.trim(text)
-  if text == "" or #text > 2000 or text:find("\n") then
-    return nil
-  end
-
-  local browse = text:match("/browse/([A-Za-z][A-Za-z0-9]+%-%d+)")
-  if browse then
-    return "jira", browse:upper(), browse:upper()
-  end
-
-  local key = text:match("^([A-Za-z][A-Za-z0-9]+%-%d+)$")
-  if key then
-    return "jira", key:upper(), key:upper()
-  end
-
-  if text:match("^https?://") then
-    if text:find("slack%.com/") and (text:find("/archives/") or text:find("/client/")) then
-      local short = (#text > 80) and (text:sub(1, 77) .. "…") or text
-      return "slack", text, short
-    end
-    if text:find("/pull/%d+") or text:find("/merge_requests/%d+") or text:find("/-/merge_requests/%d+") then
-      local short = (#text > 80) and (text:sub(1, 77) .. "…") or text
-      return "review", text, short
-    end
-  end
-  return nil
 end
 
 local function refreshBlocks()
@@ -86,18 +53,6 @@ local function doPark(token: string)
   runSlate("park " .. shQuote(token), "Parked")
 end
 
--- Clipboard hit → open launcher prefilled with /slate <token> (replaces notify-send actions).
-local function offer(kind: string, token: string, label: string)
-  noctalia.state.set("offer", { kind = kind, token = token, label = label })
-  local ctx = "/slate " .. token
-  noctalia.runAsync("noctalia msg panel-open launcher " .. shQuote(ctx), function(r)
-    if r.exitCode ~= 0 then
-      noctalia.log("slate launcher open failed: " .. tostring(r.stderr))
-      noctalia.notify("My Slate", label .. " — use /slate in the launcher")
-    end
-  end, 5000)
-end
-
 local lastReqSeq = 0
 
 local function handleRequests()
@@ -130,31 +85,14 @@ end
 function update()
   handleRequests()
 
-  local poll = tonumber(cfg("poll_ms")) or 1000
-  noctalia.setUpdateInterval(math.max(250, math.min(poll, 10000)))
-
   local refreshEvery = tonumber(cfg("blocks_refresh_ms")) or 5000
+  noctalia.setUpdateInterval(math.max(1000, math.min(refreshEvery, 60000)))
+
   local t = nowMs()
   if t - lastBlocksAt >= refreshEvery then
     lastBlocksAt = t
     refreshBlocks()
   end
-
-  if cfg("clipboard_offer") == false then
-    return
-  end
-
-  local text = noctalia.clipboardText()
-  if type(text) ~= "string" or text == lastClip then
-    return
-  end
-  lastClip = text
-
-  local kind, token, label = matchClip(text)
-  if not kind then
-    return
-  end
-  offer(kind, token, label)
 end
 
 function onIpc(cmd: string)
