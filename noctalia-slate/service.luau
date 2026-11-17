@@ -1,6 +1,6 @@
 --!nonstrict
 -- Headless [[service]]: clipboard offer + slate ls --json refresh.
--- Widget/panel only read shared state ("blocks", "offer").
+-- Jira / PR/MR / Slack permalink → Open session (primary) or Park only.
 
 local lastClip = ""
 local lastOffered = ""
@@ -22,17 +22,12 @@ local function nowMs(): number
   return (tonumber(noctalia.formatTime("%s")) or 0) * 1000
 end
 
--- Returns kind ("jira"|"review"), token (key or url), label — or nil.
 local function matchClip(text: string)
   if type(text) ~= "string" then
     return nil
   end
   text = noctalia.string.trim(text)
-  if text == "" or #text > 2000 then
-    return nil
-  end
-  -- single-line only (avoid huge pastes)
-  if text:find("\n") then
+  if text == "" or #text > 2000 or text:find("\n") then
     return nil
   end
 
@@ -47,11 +42,12 @@ local function matchClip(text: string)
   end
 
   if text:match("^https?://") then
+    if text:find("slack%.com/") and (text:find("/archives/") or text:find("/client/")) then
+      local short = (#text > 80) and (text:sub(1, 77) .. "…") or text
+      return "slack", text, short
+    end
     if text:find("/pull/%d+") or text:find("/merge_requests/%d+") or text:find("/-/merge_requests/%d+") then
-      local short = text
-      if #short > 80 then
-        short = short:sub(1, 77) .. "…"
-      end
+      local short = (#text > 80) and (text:sub(1, 77) .. "…") or text
       return "review", text, short
     end
   end
@@ -84,16 +80,12 @@ local function runSlate(args: string, okMsg: string)
   end, 15000)
 end
 
-local function doAdd(kind: string, token: string)
-  if kind == "jira" then
-    runSlate("capture " .. shQuote(token), "Captured " .. token)
-  else
-    runSlate("review " .. shQuote(token), "Review parked")
-  end
+local function doOpen(token: string)
+  runSlate("open " .. shQuote(token), "Opening session")
 end
 
-local function doOpen(token: string)
-  runSlate("open " .. shQuote(token), "Opening " .. token)
+local function doPark(token: string)
+  runSlate("park " .. shQuote(token), "Parked")
 end
 
 local function offer(kind: string, token: string, label: string)
@@ -104,28 +96,24 @@ local function offer(kind: string, token: string, label: string)
   lastOffered = token
   noctalia.state.set("offer", { kind = kind, token = token, label = label })
 
-  local openAct = ""
-  if kind == "jira" then
-    openAct = " -A open='Open session'"
-  end
-  local cmd = "notify-send -a slate -t 20000 -A add='Add to slate'"
-    .. openAct
-    .. " -A dismiss=Dismiss 'Add to slate' "
+  local cmd = "notify-send -a slate -t 20000"
+    .. " -A open='Open session'"
+    .. " -A park='Park only'"
+    .. " -A dismiss=Dismiss 'Slate' "
     .. shQuote(label)
 
   noctalia.runAsync(cmd, function(r)
     offering = false
     local act = noctalia.string.trim(r.stdout or "")
-    if act == "add" then
-      doAdd(kind, token)
-    elseif act == "open" and kind == "jira" then
+    if act == "open" then
       doOpen(token)
+    elseif act == "park" then
+      doPark(token)
     end
     noctalia.state.set("offer", nil)
   end, 25000)
 end
 
--- Panel writes requests here (seq bumps).
 local lastReqSeq = 0
 
 local function handleRequests()
@@ -140,12 +128,11 @@ local function handleRequests()
   lastReqSeq = seq
   local action = req.action
   local token = req.token
-  local kind = req.kind
-  if action == "add" and type(token) == "string" and type(kind) == "string" then
-    doAdd(kind, token)
-    noctalia.state.set("offer", nil)
-  elseif action == "open" and type(token) == "string" then
+  if action == "open" and type(token) == "string" then
     doOpen(token)
+    noctalia.state.set("offer", nil)
+  elseif (action == "park" or action == "add") and type(token) == "string" then
+    doPark(token)
     noctalia.state.set("offer", nil)
   elseif action == "dismiss_offer" then
     noctalia.state.set("offer", nil)
@@ -174,10 +161,7 @@ function update()
   end
 
   local text = noctalia.clipboardText()
-  if type(text) ~= "string" then
-    return
-  end
-  if text == lastClip then
+  if type(text) ~= "string" or text == lastClip then
     return
   end
   lastClip = text
@@ -195,6 +179,5 @@ function onIpc(cmd: string)
   end
 end
 
--- First paint
 refreshBlocks()
 noctalia.setUpdateInterval(1000)

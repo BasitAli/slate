@@ -22,7 +22,10 @@ ITHAKA_PREFIX = "/work/Developer/Ithaka"
 
 JIRA_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
 JIRA_BROWSE_RE = re.compile(r"/browse/([A-Z][A-Z0-9]+-\d+)", re.I)
-
+PR_URL_RE = re.compile(r"/(?:pull|merge_requests)/\d+")
+SLACK_URL_RE = re.compile(
+    r"https?://[^\s]*slack\.com/(?:archives|client)/[^\s]+", re.I
+)
 
 def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -313,6 +316,127 @@ def ensure_block_for_jira(key: str, title: str | None = None) -> dict[str, Any]:
     return block
 
 
+def is_pr_url(url: str) -> bool:
+    return bool(PR_URL_RE.search(url))
+
+
+def is_slack_url(url: str) -> bool:
+    return bool(SLACK_URL_RE.search(url))
+
+
+def ensure_slack(url: str, title: str | None = None) -> dict[str, Any]:
+    for n in load_nodes():
+        if n.get("kind") == "slack" and (n.get("refs") or {}).get("url") == url:
+            return n
+    nid = new_id()
+    short = url if len(url) <= 60 else url[:57] + "…"
+    node = {
+        "id": nid,
+        "profile": active_profile(),
+        "kind": "slack",
+        "title": title or short,
+        "status": "open",
+        "notes": [],
+        "started": now(),
+        "ended": None,
+        "refs": {"url": url},
+    }
+    append_jsonl(nodes_path(), node)
+    return node
+
+
+def ensure_block_for_slack(url: str, title: str | None = None) -> dict[str, Any]:
+    slack = ensure_slack(url, title)
+    for nid in neighbors(slack["id"]):
+        n = get_node(nid)
+        if n and n.get("kind") == "block" and n.get("status") == "open":
+            return n
+    bid = new_id()
+    short = title or (url if len(url) <= 48 else url[:45] + "…")
+    block = {
+        "id": bid,
+        "profile": active_profile(),
+        "kind": "block",
+        "title": short,
+        "status": "open",
+        "next": "triage Slack thread",
+        "notes": [],
+        "started": now(),
+        "ended": None,
+        "refs": {},
+    }
+    append_jsonl(nodes_path(), block)
+    ensure_link(bid, slack["id"])
+    return block
+
+
+def ensure_block_for_review(
+    url: str, title: str | None = None, jira: str | None = None
+) -> tuple[dict[str, Any], str]:
+    """Return (block, code_review_id). Same graph as `slate review`."""
+    existing = resolve_node(url)
+    if existing:
+        cr_id = existing["id"]
+    else:
+        cr_id = new_id()
+        append_jsonl(
+            nodes_path(),
+            {
+                "id": cr_id,
+                "profile": active_profile(),
+                "kind": "code_review",
+                "title": title or review_title_from_url(url),
+                "status": "open",
+                "notes": [],
+                "started": now(),
+                "ended": None,
+                "refs": {"url": url},
+            },
+        )
+    block = None
+    for nid in neighbors(cr_id):
+        n = get_node(nid)
+        if n and n.get("kind") == "block" and n.get("status") == "open":
+            block = n
+            break
+    if not block:
+        bid = new_id()
+        block = {
+            "id": bid,
+            "profile": active_profile(),
+            "kind": "block",
+            "title": title or review_title_from_url(url),
+            "status": "open",
+            "next": "read diff / leave comments",
+            "notes": [],
+            "started": now(),
+            "ended": None,
+            "refs": {},
+        }
+        append_jsonl(nodes_path(), block)
+        ensure_link(bid, cr_id)
+    if jira:
+        j = ensure_jira(jira.upper())
+        ensure_link(block["id"], j["id"])
+    return block, cr_id
+
+
+def launch_claude(root: str, tab_title: str, seed: str) -> None:
+    cmd = [
+        "kitty",
+        "--directory",
+        root,
+        "-o",
+        f"tab_title={tab_title}",
+        "claude",
+        seed,
+    ]
+    try:
+        subprocess.Popen(cmd, start_new_session=True)
+    except FileNotFoundError as e:
+        die(f"launch failed: {e}")
+
+
 def cmd_start(args: argparse.Namespace) -> None:
     title = " ".join(args.title) if args.title else "session"
     root = resolve_root(args.root)
@@ -547,19 +671,29 @@ def cmd_show(args: argparse.Namespace) -> None:
             print(f"  {k['id']}  {k['kind']:14}  [{k['status']}]  {k['title']}")
 
 
-def block_chips(block_id: str, prof: str) -> list[str]:
+def block_chips(block_id: str, prof: str) -> tuple[list[str], str | None]:
+    """Return (chips, open_target) — open_target is best token for `slate open`."""
     chips: list[str] = []
+    open_target: str | None = None
     for nid in neighbors(block_id, prof):
         c = get_node(nid, prof)
         if not c:
             continue
         if c["kind"] == "jira":
-            chips.append((c.get("refs") or {}).get("jira", "jira"))
+            key = (c.get("refs") or {}).get("jira", "jira")
+            chips.append(key)
+            open_target = open_target or key
         elif c["kind"] == "code_review":
             chips.append("pr")
+            url = (c.get("refs") or {}).get("url")
+            open_target = open_target or url
+        elif c["kind"] == "slack":
+            chips.append("slack")
+            url = (c.get("refs") or {}).get("url")
+            open_target = open_target or url
         elif c["kind"] == "agent_session":
             chips.append("sess")
-    return chips
+    return chips, open_target
 
 
 def cmd_ls(args: argparse.Namespace) -> None:
@@ -576,7 +710,7 @@ def cmd_ls(args: argparse.Namespace) -> None:
         else:
             blocks = blocks[-20:]
         for b in blocks:
-            chips = block_chips(b["id"], prof)
+            chips, open_target = block_chips(b["id"], prof)
             rows.append(
                 {
                     "id": b["id"],
@@ -585,6 +719,7 @@ def cmd_ls(args: argparse.Namespace) -> None:
                     "status": b.get("status") or "",
                     "next": b.get("next") or "",
                     "chips": chips,
+                    "open": open_target or "",
                     "note": (b.get("notes") or [{}])[-1].get("text", "") if b.get("notes") else "",
                 }
             )
@@ -635,80 +770,57 @@ def cmd_review(args: argparse.Namespace) -> None:
     url = args.url
     if not url.startswith(("http://", "https://")):
         die("review expects an http(s) URL")
-    existing = resolve_node(url)
-    if existing:
-        cr_id = existing["id"]
-    else:
-        cr_id = new_id()
-        append_jsonl(
-            nodes_path(),
-            {
-                "id": cr_id,
-                "profile": active_profile(),
-                "kind": "code_review",
-                "title": args.title or review_title_from_url(url),
-                "status": "open",
-                "notes": [],
-                "started": now(),
-                "ended": None,
-                "refs": {"url": url},
-            },
-        )
-    # find or create block linked to this review
-    block = None
-    for nid in neighbors(cr_id):
-        n = get_node(nid)
-        if n and n.get("kind") == "block" and n.get("status") == "open":
-            block = n
-            break
-    if not block:
-        bid = new_id()
-        block = {
-            "id": bid,
-            "profile": active_profile(),
-            "kind": "block",
-            "title": args.title or review_title_from_url(url),
-            "status": "open",
-            "next": "read diff / leave comments",
-            "notes": [],
-            "started": now(),
-            "ended": None,
-            "refs": {},
-        }
-        append_jsonl(nodes_path(), block)
-        ensure_link(bid, cr_id)
-    if args.jira:
-        j = ensure_jira(args.jira.upper())
-        ensure_link(block["id"], j["id"])
+    block, cr_id = ensure_block_for_review(url, title=args.title, jira=args.jira)
     print(block["id"])
     print(f"code_review={cr_id}", file=sys.stderr)
 
 
+def park_target(target: str, title: str | None = None) -> dict[str, Any]:
+    """Ensure block + child for jira / PR / Slack; do not launch Claude."""
+    target = target.strip()
+    if is_slack_url(target):
+        return ensure_block_for_slack(target, title=title)
+    if target.startswith(("http://", "https://")) and is_pr_url(target):
+        block, _cr = ensure_block_for_review(target, title=title)
+        return block
+    key = parse_jira_token(target)
+    return ensure_block_for_jira(key, title=title or key)
+
+
+def cmd_park(args: argparse.Namespace) -> None:
+    block = park_target(args.target, title=args.title)
+    print(block["id"])
+
+
 def cmd_open(args: argparse.Namespace) -> None:
-    key = parse_jira_token(args.jira)
+    """Park + launch kitty/claude for jira key/url, PR/MR url, or Slack permalink."""
+    target = (args.target or "").strip()
     root = resolve_root(args.root)
     if not Path(root).is_dir():
         die(f"root is not a directory: {root}")
-    # park jira+block before launch
-    block = ensure_block_for_jira(key, title=args.title or key)
-    seed = f"Start working on {key}."
-    if args.title:
-        seed += f" {args.title}"
-    # kitty + claude; skill will start/link session
-    cmd = [
-        "kitty",
-        "--directory",
-        root,
-        "-o",
-        f"tab_title={key}",
-        "claude",
-        seed,
-    ]
+
+    if is_slack_url(target):
+        block = ensure_block_for_slack(target, title=args.title)
+        tab = "slack"
+        seed = f"Help with this Slack thread: {target}"
+        if args.title:
+            seed += f" ({args.title})"
+    elif target.startswith(("http://", "https://")) and is_pr_url(target):
+        block, _cr = ensure_block_for_review(target, title=args.title)
+        tab = "review"
+        seed = f"Code review this PR/MR: {target}"
+        if args.title:
+            seed += f" — {args.title}"
+    else:
+        key = parse_jira_token(target)
+        block = ensure_block_for_jira(key, title=args.title or key)
+        tab = key
+        seed = f"Start working on {key}."
+        if args.title:
+            seed += f" {args.title}"
+
     print(f"block={block['id']} root={root}", file=sys.stderr)
-    try:
-        subprocess.Popen(cmd, start_new_session=True)
-    except FileNotFoundError as e:
-        die(f"launch failed: {e}")
+    launch_claude(root, tab, seed)
     print(block["id"])
 
 
@@ -801,8 +913,22 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--title")
     sp.set_defaults(func=cmd_review)
 
-    sp = sub.add_parser("open", help="kitty+claude seeded on jira key or browse url")
-    sp.add_argument("jira", help="KEY or https://…/browse/KEY")
+    sp = sub.add_parser(
+        "park",
+        help="block only (no session): jira / PR/MR / Slack permalink",
+    )
+    sp.add_argument("target")
+    sp.add_argument("--title")
+    sp.set_defaults(func=cmd_park)
+
+    sp = sub.add_parser(
+        "open",
+        help="kitty+claude: jira key/url, PR/MR url, or Slack permalink",
+    )
+    sp.add_argument(
+        "target",
+        help="JIRA key/url | GitHub/GitLab PR/MR url | Slack archives/… permalink",
+    )
     sp.add_argument("--root")
     sp.add_argument("--title")
     sp.set_defaults(func=cmd_open)

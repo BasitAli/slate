@@ -34,17 +34,14 @@ local function header()
 end
 
 local function offerBanner(offer)
-  local actions = {
-    ui.button({ text = noctalia.tr("add"), onClick = "onOfferAdd" }),
-  }
-  if offer.kind == "jira" then
-    table.insert(actions, ui.button({ text = noctalia.tr("open_session"), variant = "ghost", onClick = "onOfferOpen" }))
-  end
-  table.insert(actions, ui.button({ text = noctalia.tr("dismiss"), variant = "ghost", onClick = "onOfferDismiss" }))
   return ui.column({ gap = 8, paddingV = 6, fill = "primary/0.15", radius = 8, paddingH = 10 }, {
     ui.label({ text = noctalia.tr("offer_title"), fontWeight = "bold", color = "primary" }),
     ui.label({ text = tostring(offer.label or offer.token), color = "on_surface", fontSize = 12 }),
-    ui.row({ gap = 6 }, actions),
+    ui.row({ gap = 6 }, {
+      ui.button({ text = noctalia.tr("open_session"), onClick = "onOfferOpen" }),
+      ui.button({ text = noctalia.tr("park"), variant = "ghost", onClick = "onOfferPark" }),
+      ui.button({ text = noctalia.tr("dismiss"), variant = "ghost", onClick = "onOfferDismiss" }),
+    }),
   })
 end
 local function card(b, index)
@@ -118,17 +115,17 @@ function onRefresh()
   request("refresh")
 end
 
-function onOfferAdd()
+function onOfferOpen()
   local offer = noctalia.state.get("offer")
   if type(offer) == "table" then
-    request("add", { kind = offer.kind, token = offer.token })
+    request("open", { token = offer.token })
   end
 end
 
-function onOfferOpen()
+function onOfferPark()
   local offer = noctalia.state.get("offer")
-  if type(offer) == "table" and offer.kind == "jira" then
-    request("open", { token = offer.token })
+  if type(offer) == "table" then
+    request("park", { token = offer.token })
   end
 end
 
@@ -141,21 +138,12 @@ local function openAt(i)
   if not b then
     return
   end
-  -- Prefer jira chip for open; else id won't launch — skip if no jira
-  local key = nil
-  if type(b.chips) == "table" then
-    for _, c in ipairs(b.chips) do
-      if type(c) == "string" and c:match("^[A-Z][A-Z0-9]+%-%d+$") then
-        key = c
-        break
-      end
-    end
+  local token = b.open
+  if type(token) ~= "string" or token == "" then
+    noctalia.notify("Slate", "Nothing to open on this block")
+    return
   end
-  if key then
-    request("open", { token = key })
-  else
-    noctalia.notify("Slate", "No Jira key on this block")
-  end
+  request("open", { token = token })
 end
 
 local function doneAt(i)
