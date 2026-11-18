@@ -77,15 +77,10 @@ local function blockRows(filter: string): { any }
       end
     end
     if include then
-      local openTok = item.open
-      local id
-      if type(openTok) == "string" and openTok ~= "" then
-        id = "open:" .. openTok
-      else
-        id = "show:" .. tostring(item.id)
-      end
+      -- Always open by block id (continue). item.open jira/url is for display chips only.
       table.insert(rows, {
-        id = id,
+        id = "open:" .. tostring(item.id),
+
         title = title,
         subtitle = (chips ~= "" and chips or tostring(item.profile or ""))
           .. ((item.next and item.next ~= "") and (" · " .. item.next) or ""),

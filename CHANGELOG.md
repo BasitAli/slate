@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.10 — 2026-11-18
+
+### Fixed
+
+- Panel Open watches `request` immediately (was polling, looked dead)
+- Card Open uses block id + continue / `claude --continue` (was re-running park+“Start working on”)
+
 ## 0.2.9 — 2026-11-18
 
 ### Fixed

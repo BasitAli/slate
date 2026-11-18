@@ -55,8 +55,7 @@ end
 
 local lastReqSeq = 0
 
-local function handleRequests()
-  local req = noctalia.state.get("request")
+local function handleRequest(req: any)
   if type(req) ~= "table" then
     return
   end
@@ -83,8 +82,6 @@ local function handleRequests()
 end
 
 function update()
-  handleRequests()
-
   local refreshEvery = tonumber(cfg("blocks_refresh_ms")) or 5000
   noctalia.setUpdateInterval(math.max(1000, math.min(refreshEvery, 60000)))
 
@@ -101,5 +98,6 @@ function onIpc(cmd: string)
   end
 end
 
+noctalia.state.watch("request", handleRequest)
 refreshBlocks()
 noctalia.setUpdateInterval(1000)

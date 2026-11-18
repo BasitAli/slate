@@ -464,10 +464,16 @@ _KITTY_BG_COLORS = (
 )
 
 
-def launch_claude(root: str, tab_title: str, seed: str) -> None:
+def launch_claude(
+    root: str, tab_title: str, seed: str | None, *, continue_session: bool = False
+) -> None:
     bg = random.choice(_KITTY_BG_COLORS)
     # Login fish pulls hm-sessionPath + conf.d (switchboard/twg/mise). Noctalia's
     # systemd PATH does not — don't hardcode dirs; track fish/session config.
+    if continue_session:
+        fish_c = "exec claude --continue"
+    else:
+        fish_c = f"exec claude {shlex.quote(seed or '')}"
     cmd = [
         "kitty",
         "--directory",
@@ -491,7 +497,7 @@ def launch_claude(root: str, tab_title: str, seed: str) -> None:
         "fish",
         "-l",
         "-c",
-        f"exec claude {shlex.quote(seed)}",
+        fish_c,
     ]
     try:
         subprocess.Popen(cmd, start_new_session=True)
@@ -772,7 +778,7 @@ def cmd_ls(args: argparse.Namespace) -> None:
         else:
             blocks = blocks[-20:]
         for b in blocks:
-            chips, open_target = block_chips(b["id"], prof)
+            chips, _open_target = block_chips(b["id"], prof)
             rows.append(
                 {
                     "id": b["id"],
@@ -781,7 +787,9 @@ def cmd_ls(args: argparse.Namespace) -> None:
                     "status": b.get("status") or "",
                     "next": b.get("next") or "",
                     "chips": chips,
-                    "open": open_target or "",
+                    # Always the block id — panel/launcher call `slate open <id>` to
+                    # continue. Jira/PR/Slack tokens are for `slate open KEY|URL` (park+start).
+                    "open": b["id"],
                     "note": (b.get("notes") or [{}])[-1].get("text", "") if b.get("notes") else "",
                 }
             )
@@ -854,9 +862,78 @@ def cmd_park(args: argparse.Namespace) -> None:
     print(block["id"])
 
 
+def _block_has_open_session(block: dict[str, Any]) -> bool:
+    prof = node_profile(block)
+    for nid in neighbors(block["id"], prof):
+        c = get_node(nid, prof)
+        if c and c.get("kind") == "agent_session" and c.get("status") == "open":
+            return True
+    return False
+
+
+def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
+    """Continue an existing card: resume prior claude in root if any, else seed from card."""
+    prof = node_profile(block)
+    root_dir = resolve_root(root, profile=prof)
+    if not Path(root_dir).is_dir():
+        die(f"root is not a directory: {root_dir}")
+    title = block.get("title") or block["id"]
+    chips, _ = block_chips(block["id"], prof)
+    resume = _block_has_open_session(block)
+
+    sid = new_id()
+    append_jsonl(
+        nodes_path(prof),
+        {
+            "id": sid,
+            "profile": prof,
+            "kind": "agent_session",
+            "title": title,
+            "status": "open",
+            "root": root_dir,
+            "notes": [],
+            "started": now(),
+            "ended": None,
+            "refs": {},
+        },
+    )
+    ensure_link(sid, block["id"], prof)
+
+    print(f"block={block['id']} profile={prof} root={root_dir} resume={resume}", file=sys.stderr)
+    if resume:
+        launch_claude(root_dir, title[:48], None, continue_session=True)
+    else:
+        parts = [f"Continue work on {title}."]
+        if block.get("next"):
+            parts.append(f"Next: {block['next']}")
+        if chips:
+            parts.append("Linked: " + ", ".join(chips))
+        notes = block.get("notes") or []
+        if notes:
+            parts.append("Latest note: " + str(notes[-1].get("text", ""))[:400])
+        launch_claude(root_dir, title[:48], " ".join(parts))
+    print(block["id"])
+
+
 def cmd_open(args: argparse.Namespace) -> None:
-    """Park + launch kitty/claude for jira key/url, PR/MR url, or Slack permalink."""
+    """Open a block id (continue), or park+launch for jira/PR/Slack."""
     target = (args.target or "").strip()
+
+    # Block id (from panel / launcher card) → continue, do not re-seed "Start working on".
+    if re.fullmatch(r"[0-9a-f]{8}", target):
+        node = resolve_node(target)
+        if not node:
+            die(f"unknown {target}")
+        if node.get("kind") == "block":
+            open_existing_block(node, args.root)
+            return
+        prof = node_profile(node)
+        for nid in neighbors(node["id"], prof):
+            n = get_node(nid, prof)
+            if n and n.get("kind") == "block":
+                open_existing_block(n, args.root)
+                return
+        die(f"no block linked to {target}")
 
     if is_slack_url(target):
         block = ensure_block_for_slack(target, title=args.title)
