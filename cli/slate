@@ -571,8 +571,36 @@ def open_agent_sessions(block: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _session_rank(sess: dict[str, Any]) -> tuple[int, int, str]:
+    """Prefer Claude UUID + live kitty_pid, then newest."""
+    cs = 1 if (sess.get("refs") or {}).get("claude_session") else 0
+    pid = sess.get("kitty_pid")
+    live = 0
+    if isinstance(pid, int) and _pid_is_live_kitty(pid):
+        live = 1
+    elif isinstance(pid, str) and pid.isdigit() and _pid_is_live_kitty(int(pid)):
+        live = 1
+    return (cs, live, str(sess.get("started") or ""))
+
+
+def prune_open_sessions(block: dict[str, Any]) -> str | None:
+    """Keep one open agent_session per block; mark the rest done. Returns keeper id."""
+    sessions = open_agent_sessions(block)
+    if not sessions:
+        return None
+    if len(sessions) == 1:
+        return sessions[0]["id"]
+    sessions.sort(key=_session_rank, reverse=True)
+    keeper = sessions[0]
+    prof = node_profile(block)
+    for sess in sessions[1:]:
+        update_node(sess["id"], profile=prof, status="done", ended=now())
+    return keeper["id"]
+
+
 def focus_block_window(block: dict[str, Any]) -> bool:
     """Focus existing kitty for this block: stored kitty_pid first, then Claude UUID discover."""
+    prune_open_sessions(block)
     for sess in open_agent_sessions(block):
         pid = sess.get("kitty_pid")
         if isinstance(pid, int) and focus_hypr_pid(pid):
@@ -647,8 +675,9 @@ def ensure_agent_session(
     kitty_pid: int | None = None,
     claude_sid: str | None = None,
 ) -> str:
-    """Reuse newest open agent_session on block when present; else create. Store kitty_pid / uuid."""
+    """Reuse the keeper open agent_session on block; prune duplicates; else create."""
     prof = node_profile(block)
+    prune_open_sessions(block)
     sessions = open_agent_sessions(block)
     refs_update: dict[str, Any] = {}
     if claude_sid:
@@ -659,6 +688,10 @@ def ensure_agent_session(
         fields: dict[str, Any] = {}
         if kitty_pid:
             fields["kitty_pid"] = kitty_pid
+        if title and title != sess.get("title"):
+            # Prefer a skill-provided title over a bare key seed title.
+            if sess.get("title") in ("", None, block.get("title"), block.get("id")):
+                fields["title"] = title
         if refs_update:
             refs = dict(sess.get("refs") or {})
             refs.update(refs_update)
@@ -900,6 +933,36 @@ def cmd_done_block(args: argparse.Namespace) -> None:
         if child and child.get("status") == "open":
             update_node(nid, status="done", ended=now())
     print(node["id"])
+
+
+def cmd_prune(args: argparse.Namespace) -> None:
+    """Collapse duplicate open agent_sessions — one keeper per block."""
+    blocks: list[dict[str, Any]] = []
+    if args.block:
+        node = resolve_node(args.block)
+        if not node:
+            die(f"unknown {args.block}")
+        if node.get("kind") != "block":
+            found = None
+            for nid in neighbors(node["id"], node_profile(node)):
+                n = get_node(nid, node_profile(node))
+                if n and n.get("kind") == "block":
+                    found = n
+                    break
+            node = found or die("not a block (and no linked block found)")
+        blocks = [node]
+    else:
+        for prof in ("ithaka", "personal"):
+            for n in load_nodes(prof):
+                if n.get("kind") == "block" and n.get("status") == "open":
+                    blocks.append(n)
+
+    for block in blocks:
+        before = open_agent_sessions(block)
+        if len(before) <= 1:
+            continue
+        keeper = prune_open_sessions(block)
+        print(f"{block['id']}: kept {keeper}, closed {len(before) - 1} duplicate session(s)")
 
 
 def cmd_show(args: argparse.Namespace) -> None:
@@ -1222,6 +1285,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("done-block")
     sp.add_argument("id")
     sp.set_defaults(func=cmd_done_block)
+
+    sp = sub.add_parser(
+        "prune",
+        help="collapse duplicate open agent_sessions on a block (or all open blocks)",
+    )
+    sp.add_argument("block", nargs="?", help="block id / jira:KEY (default: all open blocks)")
+    sp.set_defaults(func=cmd_prune)
 
     sp = sub.add_parser("show")
     sp.add_argument("id")

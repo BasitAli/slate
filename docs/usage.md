@@ -25,7 +25,8 @@ Root resolution: `--root` → profile `root` → `$PWD`.
 slate ls                   # open blocks (ithaka + personal)
 slate ls --profile ithaka  # one profile
 slate ls --all             # + recent done
-slate show <id|KEY>        # block/jira/session + neighbors
+slate show <id|KEY>
+slate prune [block]           # drop duplicate open agent_sessions (1 keeper)        # block/jira/session + neighbors
 slate next <block> "…"
 slate note <block> "…"
 slate done-block <id|jira:KEY>

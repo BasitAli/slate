@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.14 — 2026-11-18
+
+### Added
+
+- `slate prune [block]` — one open `agent_session` per block; also runs on open/start/focus
+
 ## 0.2.13 — 2026-11-18
 
 ### Changed
