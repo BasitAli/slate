@@ -39,10 +39,10 @@ slate open https://…/browse/PROJ-456
 slate open https://github.com/…/pull/1                   # review session
 slate open 'https://….slack.com/archives/…/p…'         # slack session
 slate park <same targets>                                # block only, no session
-# or in an existing Claude session — skill runs:
-slate start "flaky auth · PROJ-456"
-slate add jira PROJ-456
-slate link <session> <block>       # skill links session + jira → block
+# or in an existing Claude session — skill runs (records $CLAUDE_CODE_SESSION_ID):
+slate start "flaky auth · PROJ-456" --jira PROJ-456 \
+  --claude-session "$CLAUDE_CODE_SESSION_ID"
+# → agent_session.refs.claude_session; later `slate open <block>` uses `claude --resume`
 ```
 
 ## Review
