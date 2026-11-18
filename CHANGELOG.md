@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.13 — 2026-11-18
+
+### Changed
+
+- Store `agent_session.kitty_pid` on launch; Open focuses that first (covers `/slate` seed chats without `--resume` on cmdline). UUID discover remains fallback. `slate start` updates the existing open session instead of always adding another.
+
 ## 0.2.12 — 2026-11-18
 
 ### Added

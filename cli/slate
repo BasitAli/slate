@@ -220,13 +220,20 @@ def ensure_link(a: str, b: str, profile: str | None = None) -> None:
     save_edges(edges, profile)
 
 
-def update_node(nid: str, **fields: Any) -> dict[str, Any]:
-    nodes = load_nodes()
+def update_node(nid: str, profile: str | None = None, **fields: Any) -> dict[str, Any]:
+    if profile is None:
+        for p in ("ithaka", "personal", active_profile()):
+            if get_node(nid, p):
+                profile = p
+                break
+        else:
+            die(f"unknown node {nid}")
+    nodes = load_nodes(profile)
     for i, n in enumerate(nodes):
         if n["id"] == nid:
             n.update(fields)
             nodes[i] = n
-            save_nodes(nodes)
+            save_nodes(nodes, profile)
             return n
     die(f"unknown node {nid}")
 
@@ -485,15 +492,36 @@ def _proc_cmdline(pid: int) -> str:
         return ""
 
 
+def _pid_is_live_kitty(pid: int) -> bool:
+    if pid <= 0 or not Path(f"/proc/{pid}").exists():
+        return False
+    return "kitty" in _proc_cmdline(pid)
+
+
+def _owning_kitty_pid() -> int | None:
+    """Walk parents from this process to find the kitty OS window (for `slate start` in-session)."""
+    pid = os.getpid()
+    for _ in range(12):
+        try:
+            status = Path(f"/proc/{pid}/status").read_text()
+            ppid = int(next(line for line in status.splitlines() if line.startswith("PPid:")).split()[1])
+        except (OSError, StopIteration, ValueError):
+            return None
+        if ppid <= 1:
+            return None
+        if _pid_is_live_kitty(ppid):
+            return ppid
+        pid = ppid
+    return None
+
+
 def _kitty_pid_for_claude_session(claude_sid: str) -> int | None:
-    """Find a running kitty OS window that already has this Claude conversation."""
+    """Fallback discover: cmdline --resume <uuid>, or CLAUDE_CODE_SESSION_ID via remote control."""
     if not claude_sid:
         return None
-    # Fast path: slate-launched `claude --resume <uuid>` shows up on the kitty cmdline.
     for pid in _kitty_pids_listening():
         if claude_sid in _proc_cmdline(pid):
             return pid
-    # Skill-started chats: plain `claude`, UUID only in window env via remote control.
     for pid in _kitty_pids_listening():
         try:
             raw = subprocess.check_output(
@@ -514,12 +542,10 @@ def _kitty_pid_for_claude_session(claude_sid: str) -> int | None:
     return None
 
 
-def focus_claude_session(claude_sid: str) -> bool:
-    """Raise existing Hyprland kitty for this Claude UUID. False → caller should launch."""
-    pid = _kitty_pid_for_claude_session(claude_sid)
-    if not pid:
+def focus_hypr_pid(pid: int) -> bool:
+    """Raise Hyprland window for OS pid. Hyprland 0.55 Lua dispatchers."""
+    if not _pid_is_live_kitty(pid):
         return False
-    # Hyprland 0.55 Lua dispatchers (classic `focuswindow pid:N` is rejected).
     expr = f'hl.dsp.focus({{ window = "pid:{pid}" }})'
     try:
         r = subprocess.run(
@@ -534,6 +560,35 @@ def focus_claude_session(claude_sid: str) -> bool:
     return r.returncode == 0 and (r.stdout or "").strip().lower() == "ok"
 
 
+def open_agent_sessions(block: dict[str, Any]) -> list[dict[str, Any]]:
+    prof = node_profile(block)
+    out: list[dict[str, Any]] = []
+    for nid in neighbors(block["id"], prof):
+        c = get_node(nid, prof)
+        if c and c.get("kind") == "agent_session" and c.get("status") == "open":
+            out.append(c)
+    out.sort(key=lambda n: str(n.get("started") or ""), reverse=True)
+    return out
+
+
+def focus_block_window(block: dict[str, Any]) -> bool:
+    """Focus existing kitty for this block: stored kitty_pid first, then Claude UUID discover."""
+    for sess in open_agent_sessions(block):
+        pid = sess.get("kitty_pid")
+        if isinstance(pid, int) and focus_hypr_pid(pid):
+            return True
+        if isinstance(pid, str) and pid.isdigit() and focus_hypr_pid(int(pid)):
+            return True
+    for sess in open_agent_sessions(block):
+        cs = (sess.get("refs") or {}).get("claude_session")
+        if not cs:
+            continue
+        pid = _kitty_pid_for_claude_session(str(cs))
+        if pid and focus_hypr_pid(pid):
+            return True
+    return False
+
+
 def launch_claude(
     root: str,
     tab_title: str,
@@ -541,7 +596,8 @@ def launch_claude(
     *,
     resume_id: str | None = None,
     continue_session: bool = False,
-) -> None:
+) -> int | None:
+    """Spawn kitty+claude; return kitty OS-window pid (for agent_session.kitty_pid)."""
     bg = random.choice(_KITTY_BG_COLORS)
     # Login fish pulls hm-sessionPath + conf.d (switchboard/twg/mise). Noctalia's
     # systemd PATH does not — don't hardcode dirs; track fish/session config.
@@ -577,58 +633,97 @@ def launch_claude(
         fish_c,
     ]
     try:
-        subprocess.Popen(cmd, start_new_session=True)
+        proc = subprocess.Popen(cmd, start_new_session=True)
     except FileNotFoundError as e:
         die(f"launch failed: {e}")
+    return proc.pid
+
+
+def ensure_agent_session(
+    block: dict[str, Any],
+    *,
+    root: str,
+    title: str,
+    kitty_pid: int | None = None,
+    claude_sid: str | None = None,
+) -> str:
+    """Reuse newest open agent_session on block when present; else create. Store kitty_pid / uuid."""
+    prof = node_profile(block)
+    sessions = open_agent_sessions(block)
+    refs_update: dict[str, Any] = {}
+    if claude_sid:
+        refs_update["claude_session"] = claude_sid
+
+    if sessions:
+        sess = sessions[0]
+        fields: dict[str, Any] = {}
+        if kitty_pid:
+            fields["kitty_pid"] = kitty_pid
+        if refs_update:
+            refs = dict(sess.get("refs") or {})
+            refs.update(refs_update)
+            fields["refs"] = refs
+        if fields:
+            update_node(sess["id"], profile=prof, **fields)
+        return sess["id"]
+
+    sid = new_id()
+    append_jsonl(
+        nodes_path(prof),
+        {
+            "id": sid,
+            "profile": prof,
+            "kind": "agent_session",
+            "title": title,
+            "status": "open",
+            "root": root,
+            "notes": [],
+            "started": now(),
+            "ended": None,
+            "refs": dict(refs_update),
+            "kitty_pid": kitty_pid,
+        },
+    )
+    ensure_link(sid, block["id"], prof)
+    return sid
 
 
 def cmd_start(args: argparse.Namespace) -> None:
     title = " ".join(args.title) if args.title else "session"
     root = resolve_root(args.root)
-    block_id = args.block
+    block: dict[str, Any]
     if args.jira:
         block = ensure_block_for_jira(args.jira, title=f"{args.jira} · {title}")
-        block_id = block["id"]
-    elif not block_id:
-        # create a loose block for the session
+    elif args.block:
+        found = get_node(args.block) or resolve_node(args.block)
+        if not found or found.get("kind") != "block":
+            die(f"unknown block {args.block}")
+        block = found
+    else:
         block_id = new_id()
-        append_jsonl(
-            nodes_path(),
-            {
-                "id": block_id,
-                "profile": active_profile(),
-                "kind": "block",
-                "title": title,
-                "status": "open",
-                "next": "",
-                "notes": [],
-                "started": now(),
-                "ended": None,
-                "refs": {},
-            },
-        )
+        block = {
+            "id": block_id,
+            "profile": active_profile(),
+            "kind": "block",
+            "title": title,
+            "status": "open",
+            "next": "",
+            "notes": [],
+            "started": now(),
+            "ended": None,
+            "refs": {},
+        }
+        append_jsonl(nodes_path(), block)
     # Agent Bash exposes CLAUDE_CODE_SESSION_ID; skill should pass --claude-session too.
-    claude_sid = (args.claude_session or os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()
-    refs: dict[str, Any] = {}
-    if claude_sid:
-        refs["claude_session"] = claude_sid
-    sid = new_id()
-    node = {
-        "id": sid,
-        "profile": active_profile(),
-        "kind": "agent_session",
-        "title": title,
-        "status": "open",
-        "root": root,
-        "notes": [],
-        "started": now(),
-        "ended": None,
-        "refs": refs,
-        "kitty_window_id": os.environ.get("KITTY_WINDOW_ID"),
-    }
-    append_jsonl(nodes_path(), node)
-    ensure_link(sid, block_id)
-    # best-effort kitty title
+    claude_sid = (args.claude_session or os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip() or None
+    # Reuse open session from slate open when present; record kitty OS pid + Claude UUID.
+    sid = ensure_agent_session(
+        block,
+        root=root,
+        title=title,
+        kitty_pid=_owning_kitty_pid(),
+        claude_sid=claude_sid,
+    )
     if os.environ.get("KITTY_WINDOW_ID"):
         try:
             env = os.environ.copy()
@@ -643,7 +738,7 @@ def cmd_start(args: argparse.Namespace) -> None:
             pass
     print(sid)
     extra = f" claude_session={claude_sid}" if claude_sid else " claude_session=(none)"
-    print(f"block={block_id} root={root}{extra}", file=sys.stderr)
+    print(f"block={block['id']} root={root}{extra}", file=sys.stderr)
 
 
 def cmd_add(args: argparse.Namespace) -> None:
@@ -946,67 +1041,38 @@ def cmd_park(args: argparse.Namespace) -> None:
 
 
 def _best_claude_resume(block: dict[str, Any]) -> str | None:
-    """Most recently started open agent_session with refs.claude_session, if any."""
-    prof = node_profile(block)
-    best: tuple[str, str] | None = None  # (started, claude_session)
-    for nid in neighbors(block["id"], prof):
-        c = get_node(nid, prof)
-        if not c or c.get("kind") != "agent_session" or c.get("status") != "open":
-            continue
-        cs = (c.get("refs") or {}).get("claude_session")
-        if not cs:
-            continue
-        started = str(c.get("started") or "")
-        if best is None or started >= best[0]:
-            best = (started, str(cs))
-    return best[1] if best else None
+    for sess in open_agent_sessions(block):
+        cs = (sess.get("refs") or {}).get("claude_session")
+        if cs:
+            return str(cs)
+    return None
 
 
 def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
-    """Focus existing kitty for linked Claude UUID, else --resume, else seed a new chat."""
+    """Focus stored kitty_pid / discover by Claude UUID; else --resume; else seed."""
     prof = node_profile(block)
     root_dir = resolve_root(root, profile=prof)
     if not Path(root_dir).is_dir():
         die(f"root is not a directory: {root_dir}")
     title = block.get("title") or block["id"]
     chips, _ = block_chips(block["id"], prof)
-    resume_id = _best_claude_resume(block)
 
-    if resume_id and focus_claude_session(resume_id):
-        print(
-            f"block={block['id']} profile={prof} focused claude_session={resume_id}",
-            file=sys.stderr,
-        )
+    if focus_block_window(block):
+        print(f"block={block['id']} profile={prof} focused existing kitty", file=sys.stderr)
         print(block["id"])
         return
 
+    resume_id = _best_claude_resume(block)
     if resume_id:
         print(
             f"block={block['id']} profile={prof} root={root_dir} resume={resume_id}",
             file=sys.stderr,
         )
-        launch_claude(root_dir, title[:48], None, resume_id=resume_id)
+        pid = launch_claude(root_dir, title[:48], None, resume_id=resume_id)
+        ensure_agent_session(block, root=root_dir, title=title, kitty_pid=pid, claude_sid=resume_id)
         print(block["id"])
         return
 
-    # First open for this card — seed a chat; skill records claude_session via slate start.
-    sid = new_id()
-    append_jsonl(
-        nodes_path(prof),
-        {
-            "id": sid,
-            "profile": prof,
-            "kind": "agent_session",
-            "title": title,
-            "status": "open",
-            "root": root_dir,
-            "notes": [],
-            "started": now(),
-            "ended": None,
-            "refs": {},
-        },
-    )
-    ensure_link(sid, block["id"], prof)
     parts = [f"Continue work on {title}."]
     if block.get("next"):
         parts.append(f"Next: {block['next']}")
@@ -1016,7 +1082,8 @@ def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
     if notes:
         parts.append("Latest note: " + str(notes[-1].get("text", ""))[:400])
     print(f"block={block['id']} profile={prof} root={root_dir} resume=seed", file=sys.stderr)
-    launch_claude(root_dir, title[:48], " ".join(parts))
+    pid = launch_claude(root_dir, title[:48], " ".join(parts))
+    ensure_agent_session(block, root=root_dir, title=title, kitty_pid=pid)
     print(block["id"])
 
 
@@ -1065,8 +1132,22 @@ def cmd_open(args: argparse.Namespace) -> None:
     if not Path(root).is_dir():
         die(f"root is not a directory: {root}")
 
-    print(f"block={block['id']} profile={prof} root={root}", file=sys.stderr)
-    launch_claude(root, tab, seed)
+    # /slate <link> Open session: raise live window if we already launched one.
+    if focus_block_window(block):
+        print(f"block={block['id']} profile={prof} focused existing kitty", file=sys.stderr)
+        print(block["id"])
+        return
+
+    resume_id = _best_claude_resume(block)
+    title = block.get("title") or tab
+    if resume_id:
+        print(f"block={block['id']} profile={prof} root={root} resume={resume_id}", file=sys.stderr)
+        pid = launch_claude(root, str(tab)[:48], None, resume_id=resume_id)
+        ensure_agent_session(block, root=root, title=str(title), kitty_pid=pid, claude_sid=resume_id)
+    else:
+        print(f"block={block['id']} profile={prof} root={root}", file=sys.stderr)
+        pid = launch_claude(root, str(tab)[:48], seed)
+        ensure_agent_session(block, root=root, title=str(title), kitty_pid=pid)
     print(block["id"])
 
 
