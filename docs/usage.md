@@ -42,7 +42,8 @@ slate park <same targets>                                # block only, no sessio
 # or in an existing Claude session — skill runs (records $CLAUDE_CODE_SESSION_ID):
 slate start "flaky auth · PROJ-456" --jira PROJ-456 \
   --claude-session "$CLAUDE_CODE_SESSION_ID"
-# → agent_session.refs.claude_session; later `slate open <block>` uses `claude --resume`
+# → agent_session.refs.claude_session; later `slate open <block>` focuses that kitty if live,
+#   else `claude --resume <uuid>`
 ```
 
 ## Review

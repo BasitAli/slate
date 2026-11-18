@@ -464,6 +464,76 @@ _KITTY_BG_COLORS = (
 )
 
 
+def _kitty_pids_listening() -> list[int]:
+    """PIDs from abstract sockets @kitty-wisp-<pid> (apps.nix listen_on)."""
+    try:
+        out = subprocess.check_output(["ss", "-lx"], text=True, stderr=subprocess.DEVNULL)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    pids: list[int] = []
+    for line in out.splitlines():
+        m = re.search(r"@kitty-wisp-(\d+)\b", line)
+        if m:
+            pids.append(int(m.group(1)))
+    return pids
+
+
+def _proc_cmdline(pid: int) -> str:
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+    except OSError:
+        return ""
+
+
+def _kitty_pid_for_claude_session(claude_sid: str) -> int | None:
+    """Find a running kitty OS window that already has this Claude conversation."""
+    if not claude_sid:
+        return None
+    # Fast path: slate-launched `claude --resume <uuid>` shows up on the kitty cmdline.
+    for pid in _kitty_pids_listening():
+        if claude_sid in _proc_cmdline(pid):
+            return pid
+    # Skill-started chats: plain `claude`, UUID only in window env via remote control.
+    for pid in _kitty_pids_listening():
+        try:
+            raw = subprocess.check_output(
+                ["kitten", "@", "--to", f"unix:@kitty-wisp-{pid}", "ls"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+            data = json.loads(raw)
+        except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError, TimeoutError):
+            continue
+        for osw in data if isinstance(data, list) else []:
+            for tab in osw.get("tabs") or []:
+                for win in tab.get("windows") or []:
+                    env = win.get("env") or {}
+                    if env.get("CLAUDE_CODE_SESSION_ID") == claude_sid:
+                        return pid
+    return None
+
+
+def focus_claude_session(claude_sid: str) -> bool:
+    """Raise existing Hyprland kitty for this Claude UUID. False → caller should launch."""
+    pid = _kitty_pid_for_claude_session(claude_sid)
+    if not pid:
+        return False
+    # Hyprland 0.55 Lua dispatchers (classic `focuswindow pid:N` is rejected).
+    expr = f'hl.dsp.focus({{ window = "pid:{pid}" }})'
+    try:
+        r = subprocess.run(
+            ["hyprctl", "dispatch", expr],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0 and (r.stdout or "").strip().lower() == "ok"
+
+
 def launch_claude(
     root: str,
     tab_title: str,
@@ -893,7 +963,7 @@ def _best_claude_resume(block: dict[str, Any]) -> str | None:
 
 
 def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
-    """Continue an existing card: --resume linked Claude UUID, else seed from card."""
+    """Focus existing kitty for linked Claude UUID, else --resume, else seed a new chat."""
     prof = node_profile(block)
     root_dir = resolve_root(root, profile=prof)
     if not Path(root_dir).is_dir():
@@ -902,6 +972,24 @@ def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
     chips, _ = block_chips(block["id"], prof)
     resume_id = _best_claude_resume(block)
 
+    if resume_id and focus_claude_session(resume_id):
+        print(
+            f"block={block['id']} profile={prof} focused claude_session={resume_id}",
+            file=sys.stderr,
+        )
+        print(block["id"])
+        return
+
+    if resume_id:
+        print(
+            f"block={block['id']} profile={prof} root={root_dir} resume={resume_id}",
+            file=sys.stderr,
+        )
+        launch_claude(root_dir, title[:48], None, resume_id=resume_id)
+        print(block["id"])
+        return
+
+    # First open for this card — seed a chat; skill records claude_session via slate start.
     sid = new_id()
     append_jsonl(
         nodes_path(prof),
@@ -915,27 +1003,20 @@ def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
             "notes": [],
             "started": now(),
             "ended": None,
-            "refs": {"claude_session": resume_id} if resume_id else {},
+            "refs": {},
         },
     )
     ensure_link(sid, block["id"], prof)
-
-    print(
-        f"block={block['id']} profile={prof} root={root_dir} resume={resume_id or 'seed'}",
-        file=sys.stderr,
-    )
-    if resume_id:
-        launch_claude(root_dir, title[:48], None, resume_id=resume_id)
-    else:
-        parts = [f"Continue work on {title}."]
-        if block.get("next"):
-            parts.append(f"Next: {block['next']}")
-        if chips:
-            parts.append("Linked: " + ", ".join(chips))
-        notes = block.get("notes") or []
-        if notes:
-            parts.append("Latest note: " + str(notes[-1].get("text", ""))[:400])
-        launch_claude(root_dir, title[:48], " ".join(parts))
+    parts = [f"Continue work on {title}."]
+    if block.get("next"):
+        parts.append(f"Next: {block['next']}")
+    if chips:
+        parts.append("Linked: " + ", ".join(chips))
+    notes = block.get("notes") or []
+    if notes:
+        parts.append("Latest note: " + str(notes[-1].get("text", ""))[:400])
+    print(f"block={block['id']} profile={prof} root={root_dir} resume=seed", file=sys.stderr)
+    launch_claude(root_dir, title[:48], " ".join(parts))
     print(block["id"])
 
 

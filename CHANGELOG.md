@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.12 — 2026-11-18
+
+### Added
+
+- Open focuses an existing Hyprland kitty already running that `claude_session` (else `--resume`)
+
 ## 0.2.11 — 2026-11-18
 
 ### Added
