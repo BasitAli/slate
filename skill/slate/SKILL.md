@@ -14,16 +14,24 @@ Cards are **blocks**; children (jira, sessions, PRs) link to the block.
 ## Implement — user says they’re working on a Jira
 
 1. Resolve root: path they named, else omit `--root` (CLI uses profile config / `$PWD`).
-2. ```bash
-   SID=$(slate start "short title · KEY" --jira KEY [--root DIR])
+2. From **this** conversation’s Bash (so `CLAUDE_CODE_SESSION_ID` is set), run:
+   ```bash
+   SID=$(slate start "short title · KEY" --jira KEY [--root DIR] \
+     --claude-session "$CLAUDE_CODE_SESSION_ID")
    ```
-   (`--jira` ensures block + jira child and links the session.)
-3. Print/remember the session id (stdout) and block id (stderr `block=`).
+   (`--jira` ensures block + jira child and links the session. `--claude-session` stores
+   this chat’s UUID on the `agent_session` as `refs.claude_session` so later `slate open`
+   can `claude --resume` the same conversation. If the env var is already set, `slate start`
+   records it even without the flag — still pass the flag when you can.)
+3. Print/remember the slate session id (stdout) and block id (stderr `block=`). Confirm with
+   `slate show "$SID"` that `refs.claude_session` is present; if missing, re-run start with
+   the flag or set it via `slate start` only after the env is visible in Bash.
 4. Progress: `slate note <block-id> "…"`, `slate next <block-id> "…"`.
 5. Finish the effort: `slate done-block <block-id>` or `slate done-block jira:KEY`.
    Session-only: `slate done <session-id>` (does not close the whole card).
 
-Do **not** use kitty focus or `CLAUDE_CODE_SESSION_ID` to invent links.
+**Linking the Claude conversation id is the agent’s job** (this skill). The slate CLI must
+not invent links from kitty focus or by guessing env outside an explicit `slate start`.
 
 ## Review — user pastes a PR/MR URL
 

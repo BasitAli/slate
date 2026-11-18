@@ -72,7 +72,9 @@ Imperative runtime data stays on the machine: `~/.local/share/slate/`, `~/.confi
 
 - You (or `slate open`) say “working on PROJ-456” → skill ensures a **block**, links **jira** + **agent_session** to that block (not session↔jira only as the primary structure; session↔jira may still exist as convenience edges, but **block is canonical**)
 - Later Slack/PD/PR → `add` + `link` **to the block**
-- No kitty-focus auto-link; no `CLAUDE_CODE_SESSION_ID` in v1
+- No kitty-focus auto-link by the CLI. The **agent skill** records `CLAUDE_CODE_SESSION_ID`
+  on `agent_session.refs.claude_session` via `slate start --claude-session` so Open can
+  `claude --resume <uuid>`.
 - Voice `slate add jira KEY` alone = orphan stub until attached to a block
 
 ## Delivery order

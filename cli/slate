@@ -465,12 +465,19 @@ _KITTY_BG_COLORS = (
 
 
 def launch_claude(
-    root: str, tab_title: str, seed: str | None, *, continue_session: bool = False
+    root: str,
+    tab_title: str,
+    seed: str | None,
+    *,
+    resume_id: str | None = None,
+    continue_session: bool = False,
 ) -> None:
     bg = random.choice(_KITTY_BG_COLORS)
     # Login fish pulls hm-sessionPath + conf.d (switchboard/twg/mise). Noctalia's
     # systemd PATH does not — don't hardcode dirs; track fish/session config.
-    if continue_session:
+    if resume_id:
+        fish_c = f"exec claude --resume {shlex.quote(resume_id)}"
+    elif continue_session:
         fish_c = "exec claude --continue"
     else:
         fish_c = f"exec claude {shlex.quote(seed or '')}"
@@ -530,6 +537,11 @@ def cmd_start(args: argparse.Namespace) -> None:
                 "refs": {},
             },
         )
+    # Agent Bash exposes CLAUDE_CODE_SESSION_ID; skill should pass --claude-session too.
+    claude_sid = (args.claude_session or os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()
+    refs: dict[str, Any] = {}
+    if claude_sid:
+        refs["claude_session"] = claude_sid
     sid = new_id()
     node = {
         "id": sid,
@@ -541,7 +553,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         "notes": [],
         "started": now(),
         "ended": None,
-        "refs": {},
+        "refs": refs,
         "kitty_window_id": os.environ.get("KITTY_WINDOW_ID"),
     }
     append_jsonl(nodes_path(), node)
@@ -560,7 +572,8 @@ def cmd_start(args: argparse.Namespace) -> None:
         except FileNotFoundError:
             pass
     print(sid)
-    print(f"block={block_id} root={root}", file=sys.stderr)
+    extra = f" claude_session={claude_sid}" if claude_sid else " claude_session=(none)"
+    print(f"block={block_id} root={root}{extra}", file=sys.stderr)
 
 
 def cmd_add(args: argparse.Namespace) -> None:
@@ -862,24 +875,32 @@ def cmd_park(args: argparse.Namespace) -> None:
     print(block["id"])
 
 
-def _block_has_open_session(block: dict[str, Any]) -> bool:
+def _best_claude_resume(block: dict[str, Any]) -> str | None:
+    """Most recently started open agent_session with refs.claude_session, if any."""
     prof = node_profile(block)
+    best: tuple[str, str] | None = None  # (started, claude_session)
     for nid in neighbors(block["id"], prof):
         c = get_node(nid, prof)
-        if c and c.get("kind") == "agent_session" and c.get("status") == "open":
-            return True
-    return False
+        if not c or c.get("kind") != "agent_session" or c.get("status") != "open":
+            continue
+        cs = (c.get("refs") or {}).get("claude_session")
+        if not cs:
+            continue
+        started = str(c.get("started") or "")
+        if best is None or started >= best[0]:
+            best = (started, str(cs))
+    return best[1] if best else None
 
 
 def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
-    """Continue an existing card: resume prior claude in root if any, else seed from card."""
+    """Continue an existing card: --resume linked Claude UUID, else seed from card."""
     prof = node_profile(block)
     root_dir = resolve_root(root, profile=prof)
     if not Path(root_dir).is_dir():
         die(f"root is not a directory: {root_dir}")
     title = block.get("title") or block["id"]
     chips, _ = block_chips(block["id"], prof)
-    resume = _block_has_open_session(block)
+    resume_id = _best_claude_resume(block)
 
     sid = new_id()
     append_jsonl(
@@ -894,14 +915,17 @@ def open_existing_block(block: dict[str, Any], root: str | None = None) -> None:
             "notes": [],
             "started": now(),
             "ended": None,
-            "refs": {},
+            "refs": {"claude_session": resume_id} if resume_id else {},
         },
     )
     ensure_link(sid, block["id"], prof)
 
-    print(f"block={block['id']} profile={prof} root={root_dir} resume={resume}", file=sys.stderr)
-    if resume:
-        launch_claude(root_dir, title[:48], None, continue_session=True)
+    print(
+        f"block={block['id']} profile={prof} root={root_dir} resume={resume_id or 'seed'}",
+        file=sys.stderr,
+    )
+    if resume_id:
+        launch_claude(root_dir, title[:48], None, resume_id=resume_id)
     else:
         parts = [f"Continue work on {title}."]
         if block.get("next"):
@@ -992,6 +1016,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--root")
     sp.add_argument("--block")
     sp.add_argument("--jira")
+    sp.add_argument(
+        "--claude-session",
+        help="Claude conversation UUID (default: $CLAUDE_CODE_SESSION_ID from agent Bash)",
+    )
     sp.set_defaults(func=cmd_start)
 
     sp = sub.add_parser("add", help="add stub node")

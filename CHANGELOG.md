@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.11 — 2026-11-18
+
+### Added
+
+- `slate start --claude-session` / `$CLAUDE_CODE_SESSION_ID` → `refs.claude_session`; Open uses `claude --resume <uuid>`
+- Skill: agent must record conversation id (CLI still must not invent kitty/env links)
+
 ## 0.2.10 — 2026-11-18
 
 ### Fixed
