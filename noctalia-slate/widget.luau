@@ -1,5 +1,5 @@
 --!nonstrict
--- Bar pill: "My Slate" label + open-block count + offer dot. Click opens panel.
+-- Bar pill: "My Slate" / "My Slate (N)" + glyph. Click opens panel.
 
 local PANEL = "basitali/noctalia-slate:panel"
 local LABEL = "My Slate"
@@ -23,24 +23,17 @@ local function render()
     glyph = "clipboard-list"
   end
   local color = hasOffer and "primary" or "on_surface"
+  local text = n > 0 and (LABEL .. " (" .. tostring(n) .. ")") or LABEL
 
   local kids = {
     ui.glyph({ name = glyph, color = color }),
     ui.label({
-      text = LABEL,
+      text = text,
       fontSize = 11,
       fontWeight = "bold",
       color = color,
     }),
   }
-  if n > 0 then
-    table.insert(kids, ui.label({
-      text = tostring(n),
-      fontSize = 11,
-      fontWeight = "bold",
-      color = "on_surface",
-    }))
-  end
   if hasOffer then
     table.insert(kids, ui.box({
       width = 6,
@@ -50,7 +43,6 @@ local function render()
     }))
   end
 
-  -- Vertical (right) bar: stack so "My Slate" sits at the top section cleanly.
   if barWidget.isVertical and barWidget.isVertical() then
     barWidget.render(ui.column({ align = "center", gap = 2 }, kids))
   else

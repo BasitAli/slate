@@ -106,8 +106,31 @@ local function offerBanner(offer)
   })
 end
 
--- Sticky-notes-style card: fill + radius 8 + padding 10 + body / sep / footer.
-local function blockCard(b)
+-- Same distinct dark hues as kitty-window-bg / slate open (readable light text).
+local CARD_BG = {
+  "#1a1028",
+  "#10201a",
+  "#201010",
+  "#102028",
+  "#281810",
+  "#101828",
+  "#182010",
+  "#281028",
+}
+local CARD_FG = "#e8e8e8"
+local CARD_MUTED = "#a8a8a8"
+
+local function cardFill(id: string, index: number): string
+  -- Stable per id so refresh doesn’t reshuffle; index breaks ties.
+  local h = 0
+  for i = 1, #id do
+    h = (h * 31 + string.byte(id, i)) % 2147483647
+  end
+  return CARD_BG[((h + index) % #CARD_BG) + 1]
+end
+
+-- Sticky-notes-style card: dark fill + radius 8 + padding 10 + body / sep / footer.
+local function blockCard(b, index)
   local chips = ""
   if type(b.chips) == "table" and #b.chips > 0 then
     chips = table.concat(b.chips, " · ")
@@ -118,13 +141,14 @@ local function blockCard(b)
   if chips ~= "" then
     meta = meta .. " · " .. chips
   end
+  local fill = cardFill(tostring(b.id or index), index)
 
   local bodyKids = {
     ui.label({
       text = tostring(b.title or b.id),
       fontWeight = "bold",
       fontSize = 14,
-      color = "on_surface",
+      color = CARD_FG,
       maxLines = 2,
     }),
   }
@@ -132,7 +156,7 @@ local function blockCard(b)
     table.insert(bodyKids, ui.label({
       text = "next: " .. nxt,
       fontSize = 12,
-      color = "on_surface",
+      color = CARD_FG,
       maxLines = 3,
     }))
   end
@@ -140,7 +164,7 @@ local function blockCard(b)
     table.insert(bodyKids, ui.label({
       text = note,
       fontSize = 12,
-      color = "on_surface_variant",
+      color = CARD_MUTED,
       maxLines = 3,
     }))
   end
@@ -172,7 +196,7 @@ local function blockCard(b)
 
   return ui.column({
     key = "card-" .. tostring(b.id),
-    fill = "surface_container",
+    fill = fill,
     radius = 8,
     padding = 10,
     gap = 6,
@@ -181,7 +205,7 @@ local function blockCard(b)
     ui.column({ gap = 4, align = "stretch" }, bodyKids),
     ui.separator({}),
     ui.row({ align = "center", justify = "space_between" }, {
-      ui.label({ text = meta, fontSize = 10, color = "on_surface_variant", flexGrow = 1 }),
+      ui.label({ text = meta, fontSize = 10, color = CARD_MUTED, flexGrow = 1 }),
       ui.row({ gap = 4, align = "center" }, actions),
     }),
   })
@@ -222,7 +246,7 @@ local function render()
       if i > 16 then
         break
       end
-      table.insert(listKids, blockCard(b))
+      table.insert(listKids, blockCard(b, i))
     end
   end
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7 — 2026-11-18
+
+### Changed
+
+- Bar label **My Slate (N)**; panel cards use kitty dark palette fills
+
 ## 0.2.6 — 2026-11-18
 
 ### Fixed
