@@ -30,8 +30,10 @@ Cards are **blocks**; children (jira, sessions, PRs) link to the block.
 5. Finish the effort: `slate done-block <block-id>` or `slate done-block jira:KEY`.
    Session-only: `slate done <session-id>` (does not close the whole card).
 
-**Linking the Claude conversation id is the agent’s job** (this skill). The slate CLI must
-not invent links from kitty focus or by guessing env outside an explicit `slate start`.
+**Linking the Claude conversation id is the agent’s job** (this skill). `slate open` already
+stores `kitty_pid` on the `agent_session` for the window it launched; `slate start` **updates
+that same open session** with `refs.claude_session` (+ refreshes `kitty_pid`) — do not expect
+a second session node. The CLI must not invent links by guessing random kitty windows.
 
 ## Review — user pastes a PR/MR URL
 
