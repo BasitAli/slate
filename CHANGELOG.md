@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.6 — 2026-11-18
+
+### Fixed
+
+- **`slate open` from launcher/home** uses `slate profile default` (set to `ithaka`) instead of
+  personal/`$HOME`
+- Kitty windows from `slate open` get the same random dark bg/tab tint as interactive fish
+  (claude is launched directly, so `kitty-window-bg.fish` never ran)
+
+### Added
+
+- `slate profile default ithaka|personal` — fallback when cwd is not under Ithaka
+
 ## 0.2.5 — 2026-11-18
 
 ### Changed
