@@ -5,9 +5,10 @@
 Auto: `$PWD` under `/work/Developer/Ithaka` → `ithaka`, else `personal`.
 
 ```fish
-slate profile              # show
-slate profile ithaka       # pin
-slate profile auto         # follow cwd again
+slate profile                     # show active + default
+slate profile ithaka              # pin
+slate profile auto                # unpin (cwd / default again)
+slate profile default ithaka      # outside Ithaka cwd (launcher, home) use ithaka
 ```
 
 Config: `~/.config/slate/<profile>.toml`

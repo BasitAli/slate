@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import secrets
 import subprocess
@@ -58,11 +59,20 @@ def profile_for_cwd(cwd: str | None = None) -> str:
     return "personal"
 
 
+def configured_default_profile() -> str:
+    """Fallback when cwd is not under Ithaka and nothing is pinned."""
+    return load_state().get("default") or "personal"
+
+
 def active_profile() -> str:
     state = load_state()
     if state.get("pinned"):
         return state["pinned"]
-    return profile_for_cwd()
+    auto = profile_for_cwd()
+    if auto == "ithaka":
+        return "ithaka"
+    # Launcher / noctalia / home shells: use marked default (often ithaka).
+    return configured_default_profile()
 
 
 def profile_dir(profile: str | None = None) -> Path:
@@ -178,10 +188,10 @@ def profile_root(profile: str | None = None) -> str | None:
     return os.path.realpath(root) if root else None
 
 
-def resolve_root(explicit: str | None) -> str:
+def resolve_root(explicit: str | None, profile: str | None = None) -> str:
     if explicit:
         return os.path.realpath(explicit)
-    pr = profile_root()
+    pr = profile_root(profile)
     if pr:
         return pr
     return os.path.realpath(os.getcwd())
@@ -222,22 +232,40 @@ def update_node(nid: str, **fields: Any) -> dict[str, Any]:
 
 def cmd_profile(args: argparse.Namespace) -> None:
     state = load_state()
-    if args.name is None:
+    parts: list[str] = list(args.name or [])
+    if not parts:
         pinned = state.get("pinned")
+        default = configured_default_profile()
         auto = profile_for_cwd()
-        active = pinned or auto
-        print(f"active: {active}" + (f" (pinned)" if pinned else f" (auto from cwd → {auto})"))
+        active = active_profile()
+        if pinned:
+            how = "pinned"
+        elif auto == "ithaka":
+            how = f"auto from cwd → {auto}"
+        else:
+            how = f"default → {default}"
+        print(f"active: {active} ({how})")
+        print(f"default: {default}")
+        if pinned:
+            print(f"pinned: {pinned}")
         return
-    if args.name == "auto":
+    if parts[0] == "default":
+        if len(parts) != 2 or parts[1] not in ("ithaka", "personal"):
+            die("usage: slate profile default ithaka|personal")
+        state["default"] = parts[1]
+        save_state(state)
+        print(f"default: {parts[1]}")
+        return
+    if parts[0] == "auto":
         state.pop("pinned", None)
         save_state(state)
-        print(f"unpinned; active → {profile_for_cwd()}")
+        print(f"unpinned; active → {active_profile()}")
         return
-    if args.name not in ("ithaka", "personal"):
-        die("profile must be ithaka, personal, or auto")
-    state["pinned"] = args.name
+    if len(parts) != 1 or parts[0] not in ("ithaka", "personal"):
+        die("usage: slate profile [ithaka|personal|auto|default ithaka|personal]")
+    state["pinned"] = parts[0]
     save_state(state)
-    print(f"pinned: {args.name}")
+    print(f"pinned: {parts[0]}")
 
 
 def cmd_block_start(args: argparse.Namespace) -> None:
@@ -421,13 +449,42 @@ def ensure_block_for_review(
     return block, cr_id
 
 
+# Same distinct dark hues as home/basit/fish/kitty-window-bg.fish — slate launches
+# `claude` directly (no interactive fish), so conf.d never runs; set colors here.
+_KITTY_BG_COLORS = (
+    "#1a1028",
+    "#10201a",
+    "#201010",
+    "#102028",
+    "#281810",
+    "#101828",
+    "#182010",
+    "#281028",
+)
+
+
 def launch_claude(root: str, tab_title: str, seed: str) -> None:
+    bg = random.choice(_KITTY_BG_COLORS)
     cmd = [
         "kitty",
         "--directory",
         root,
         "-o",
         f"tab_title={tab_title}",
+        "-o",
+        f"background={bg}",
+        "-o",
+        f"tab_bar_background={bg}",
+        "-o",
+        f"tab_bar_margin_color={bg}",
+        "-o",
+        "active_tab_background=#d8d8d8",
+        "-o",
+        "active_tab_foreground=#1a1a1a",
+        "-o",
+        f"inactive_tab_background={bg}",
+        "-o",
+        "inactive_tab_foreground=#9a9a9a",
         "claude",
         seed,
     ]
@@ -795,9 +852,6 @@ def cmd_park(args: argparse.Namespace) -> None:
 def cmd_open(args: argparse.Namespace) -> None:
     """Park + launch kitty/claude for jira key/url, PR/MR url, or Slack permalink."""
     target = (args.target or "").strip()
-    root = resolve_root(args.root)
-    if not Path(root).is_dir():
-        die(f"root is not a directory: {root}")
 
     if is_slack_url(target):
         block = ensure_block_for_slack(target, title=args.title)
@@ -819,7 +873,12 @@ def cmd_open(args: argparse.Namespace) -> None:
         if args.title:
             seed += f" {args.title}"
 
-    print(f"block={block['id']} root={root}", file=sys.stderr)
+    prof = node_profile(block)
+    root = resolve_root(args.root, profile=prof)
+    if not Path(root).is_dir():
+        die(f"root is not a directory: {root}")
+
+    print(f"block={block['id']} profile={prof} root={root}", file=sys.stderr)
     launch_claude(root, tab, seed)
     print(block["id"])
 
@@ -828,8 +887,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="slate", description="Personal work ledger")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("profile", help="show / pin / auto profile")
-    sp.add_argument("name", nargs="?", help="ithaka | personal | auto")
+    sp = sub.add_parser(
+        "profile",
+        help="show / pin / auto / default profile (default used outside Ithaka cwd)",
+    )
+    sp.add_argument(
+        "name",
+        nargs="*",
+        help="ithaka | personal | auto | default ithaka|personal",
+    )
     sp.set_defaults(func=cmd_profile)
 
     sp = sub.add_parser("block", help="block card ops")
