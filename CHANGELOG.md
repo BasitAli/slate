@@ -5,6 +5,7 @@
 ### Added
 
 - `slate prune [block]` — one open `agent_session` per block; also runs on open/start/focus
+- `ls` `sess` chip only for **open** agent_sessions
 
 ## 0.2.13 — 2026-11-18
 

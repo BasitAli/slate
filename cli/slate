@@ -1000,7 +1000,7 @@ def block_chips(block_id: str, prof: str) -> tuple[list[str], str | None]:
             chips.append("slack")
             url = (c.get("refs") or {}).get("url")
             open_target = open_target or url
-        elif c["kind"] == "agent_session":
+        elif c["kind"] == "agent_session" and c.get("status") == "open":
             chips.append("sess")
     return chips, open_target
 
