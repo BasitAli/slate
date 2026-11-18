@@ -3,22 +3,22 @@
 todos:
   - id: slate-repo
     content: "Create BasitAli/slate: README, CHANGELOG, ROADMAP, docs/plans/ (move this plan in)"
-    status: pending
+    status: completed
   - id: slate-cli
     content: "Phase 1 in repo: slate CLI — block hub, start/open/review/capture/…"
-    status: pending
+    status: completed
   - id: slate-skill
     content: "Phase 1 in repo: Claude skill — implement + review (PR→Jira extract)"
-    status: pending
+    status: completed
   - id: slate-ui
-    content: "Phase 2 in repo: noctalia-slate plugin — cards + clipboard Add to slate"
-    status: pending
+    content: "Phase 2 in repo: noctalia-slate plugin — cards + /slate launcher"
+    status: completed
   - id: nixos-wire
     content: "nixos-config: package/skill/plugin source + usage/CHANGELOG inventory"
-    status: pending
+    status: completed
   - id: slate-wisp
     content: "Phase 3: Wisp macros sample in slate repo docs"
-    status: pending
+    status: completed
 isProject: false
 ---
 # Slate — linked work graph + Noctalia UI + Wisp

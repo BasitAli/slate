@@ -5,8 +5,8 @@ Detail: [docs/plans/slate.md](docs/plans/slate.md). Journeys: [docs/journeys.md]
 | Phase | Status | What |
 |-------|--------|------|
 | **1 — Core** | done | CLI + block graph + profiles + Claude skill + `open`/`review`/`capture` |
-| **2 — UI** | in progress | `noctalia-slate` cards + clipboard offer (live); polish later |
-| **3 — Voice** | started | Wisp macros (list/open/capture/review → type into kitty); richer phrases later |
+| **2 — UI** | done | `noctalia-slate` cards + `/slate` launcher; polish later |
+| **3 — Voice** | done (v1) | Wisp macros (list/open/capture/review/todo → type into kitty) |
 | Later | deferred | Switchboard/acli ingest, Cursor skill, Multica, richer statuses |
 
 ## Done when (Phase 1)
@@ -20,6 +20,10 @@ Detail: [docs/plans/slate.md](docs/plans/slate.md). Journeys: [docs/journeys.md]
 ## Done when (Phase 2)
 
 - [x] Bar widget + panel of open blocks
-- [x] Clipboard → Add to slate notification (no auto-add)
+- [x] `/slate` launcher (todos + Jira/PR/Slack paste → open/park)
 - [ ] Thumbnail / registry polish
 - [ ] Detail view richer than Open/Done
+
+## Done when (Phase 3 v1)
+
+- [x] Wisp sample macros + machine `commands.toml` phrases
