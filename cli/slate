@@ -8,6 +8,7 @@ import os
 import random
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -449,8 +450,8 @@ def ensure_block_for_review(
     return block, cr_id
 
 
-# Same distinct dark hues as home/basit/fish/kitty-window-bg.fish — slate launches
-# `claude` directly (no interactive fish), so conf.d never runs; set colors here.
+# Same distinct dark hues as home/basit/fish/kitty-window-bg.fish — conf.d only
+# runs for interactive fish; we still set colors here for the OS window.
 _KITTY_BG_COLORS = (
     "#1a1028",
     "#10201a",
@@ -463,23 +464,10 @@ _KITTY_BG_COLORS = (
 )
 
 
-def _path_with_user_bins(env: dict) -> str:
-    # Noctalia (systemd user) PATH lacks hm sessionPath — switchboard/twg live here.
-    extras = [
-        str(Path.home() / ".local" / "bin"),
-        str(Path.home() / ".npm-global" / "bin"),
-    ]
-    parts = [p for p in env.get("PATH", "").split(":") if p]
-    for p in reversed(extras):
-        if p not in parts:
-            parts.insert(0, p)
-    return ":".join(parts)
-
-
 def launch_claude(root: str, tab_title: str, seed: str) -> None:
     bg = random.choice(_KITTY_BG_COLORS)
-    env = os.environ.copy()
-    env["PATH"] = _path_with_user_bins(env)
+    # Login fish pulls hm-sessionPath + conf.d (switchboard/twg/mise). Noctalia's
+    # systemd PATH does not — don't hardcode dirs; track fish/session config.
     cmd = [
         "kitty",
         "--directory",
@@ -500,11 +488,13 @@ def launch_claude(root: str, tab_title: str, seed: str) -> None:
         f"inactive_tab_background={bg}",
         "-o",
         "inactive_tab_foreground=#9a9a9a",
-        "claude",
-        seed,
+        "fish",
+        "-l",
+        "-c",
+        f"exec claude {shlex.quote(seed)}",
     ]
     try:
-        subprocess.Popen(cmd, env=env, start_new_session=True)
+        subprocess.Popen(cmd, start_new_session=True)
     except FileNotFoundError as e:
         die(f"launch failed: {e}")
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.9 — 2026-11-18
+
+### Fixed
+
+- `slate open` launches via `fish -lc` so PATH tracks login fish (no hardcoded bin dirs)
+
 ## 0.2.8 — 2026-11-18
 
 ### Fixed
