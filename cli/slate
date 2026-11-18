@@ -463,8 +463,23 @@ _KITTY_BG_COLORS = (
 )
 
 
+def _path_with_user_bins(env: dict) -> str:
+    # Noctalia (systemd user) PATH lacks hm sessionPath — switchboard/twg live here.
+    extras = [
+        str(Path.home() / ".local" / "bin"),
+        str(Path.home() / ".npm-global" / "bin"),
+    ]
+    parts = [p for p in env.get("PATH", "").split(":") if p]
+    for p in reversed(extras):
+        if p not in parts:
+            parts.insert(0, p)
+    return ":".join(parts)
+
+
 def launch_claude(root: str, tab_title: str, seed: str) -> None:
     bg = random.choice(_KITTY_BG_COLORS)
+    env = os.environ.copy()
+    env["PATH"] = _path_with_user_bins(env)
     cmd = [
         "kitty",
         "--directory",
@@ -489,7 +504,7 @@ def launch_claude(root: str, tab_title: str, seed: str) -> None:
         seed,
     ]
     try:
-        subprocess.Popen(cmd, start_new_session=True)
+        subprocess.Popen(cmd, env=env, start_new_session=True)
     except FileNotFoundError as e:
         die(f"launch failed: {e}")
 

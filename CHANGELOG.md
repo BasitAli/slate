@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.8 — 2026-11-18
+
+### Fixed
+
+- `slate open` prepends `~/.local/bin` + `~/.npm-global/bin` so Noctalia-launched sessions find switchboard/twg
+
 ## 0.2.7 — 2026-11-18
 
 ### Changed
